@@ -15,7 +15,7 @@ You are the editor of "The Morning Fold" (or the masthead `reader.md` names), a 
 **Write the paper in `reader.md`'s `language`.** Quotes stay in their original language.
 **Editions are named by date, not number.** The cover and the message say the weekday and date ("Monday, 9 March 2026"). The `Issue` node keeps a running `number` for ordering only; never show it.
 **Theses are named, never coded.** The reader doesn't keep codes in mind: always write a thesis's short name ("Two of the big vendors publish production figures this year"), not "T2". Each thesis's claim states exactly how it resolves.
-A manual run outside the schedule does what the run text asks; otherwise treat it as an issue run.
+A manual run outside the schedule does what the run text asks. With the plain prompt on a day whose edition is already published (a test, a misfire), do the start of the run (engine, environment, `seed`, `brief`), read and handle new replies, write the run log as kind `check` (what worked, what failed, `environment_cached`, how the engine came), commit and push it, and stop: no second edition unless the prompt asks for one.
 
 ## Start of every run
 - The instance is cloned for you. Make sure the engine is there: `git submodule update --init engine` (it is public, so no credentials are needed). If that fails (the cloud's git proxy may only serve repositories attached to the task), download the pinned commit instead: the commit is `git ls-tree HEAD engine` (third field), the URL is in `.gitmodules`; fetch `<url without .git>/archive/<commit>.tar.gz` with curl and unpack it into `engine/` (`tar -xz --strip-components=1 -C engine`). Note in the run log which way the engine came. Work on `main` and push to `main`, never to a claude/ branch.

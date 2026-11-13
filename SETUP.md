@@ -145,6 +145,7 @@ Before starting, ask: is their Claude plan Pro, Max, Team or Enterprise? Cloud r
 **Then you again:**
 4. **Create the scheduled task** with the `schedule` skill (`/schedule`), or the scheduled-task tools if this session has them. Repository: their instance. Environment: the one from step 2 (look its id up; never invent one). Prompt: `Follow engine/RUN.md.` Schedule: the cron prepared above. Turn push notifications on if they set up the phone. If a tool asks the user to approve, tell them in one line what they are approving.
 5. **Run it once now** (run-now), and explain the reply loop (step 9) while it works. Then `git pull` and read the run log in `runs/`. Check:
+   - On the day of the first issue (step 7) the edition is already out, so this run only checks and writes `runs/<date>-check.json`; that is the log to read. To test publishing too, start it with a prompt that asks for a second edition, or wait for the first scheduled run.
    - `environment_cached` is true. False means the setup script didn't run or wasn't cached: in step 2, check that the script was pasted whole.
    - The engine was there. If `engine/` failed to clone (the cloud's git proxy serves only repositories attached to the task), add the engine repository as a second repository on the task, or rely on RUN.md's download fallback; then note which one worked.
    - No source failed for network reasons, and the page was published.
