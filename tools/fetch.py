@@ -18,6 +18,8 @@ Needs network access in the task's cloud environment ("Full", or "Custom" with t
       Output shows the first 12,000 characters; `text_file` holds the full text (PDF pages led by [page N]).
       `figures` lists charts saved as images under <work>/figures: PDF pages with charts (png, page,
       heading) and an article's chart images (image, caption). Read them to get numbers the text lacks.
+      `documents` lists the page's links to files (PDF, Excel, Word, PowerPoint, CSV, ICS) with their link text:
+      on an investor-relations or publications page these are the reports themselves; read them with `article`.
 
   python3 tools/fetch.py events <url> [<url> ...]
       Dated events published as structured data on a page (schema.org Event JSON-LD) or as an .ics calendar:
@@ -486,6 +488,22 @@ def cmd_sources(args):
          "per_source": [s for s in status if s["ok"]]})
 
 
+DOC_EXT = (".pdf", ".xlsx", ".xls", ".docx", ".doc", ".pptx", ".csv", ".ics")
+
+
+def document_links(html, base, cap=60):
+    """Links to files (reports, tables, calendars) on a page, with their link text, in page order."""
+    seen, docs = set(), []
+    for m in re.finditer(r'<a[^>]+href=["\']([^"\'#]+)["\'][^>]*>(.*?)</a>', html, re.I | re.S):
+        href = urljoin(base, m.group(1).strip())
+        if not urlparse(href).path.lower().endswith(DOC_EXT) or href in seen:
+            continue
+        seen.add(href)
+        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", m.group(2))).strip()
+        docs.append({"url": href, "text": text[:160]})
+    return docs[:cap]
+
+
 def cmd_article(args):
     import trafilatura
     paths.work_dir()
@@ -505,11 +523,16 @@ def cmd_article(args):
             if r.content[:5] == b"%PDF-" or r.url.lower().endswith(".pdf"):
                 d = {"title": None, "text": pdf_text(r.content)}
                 figs = pdf_figures(r.content, key)
+                docs = []
             else:
                 figs = html_figures(r.text, r.url, key)
+                docs = document_links(r.text, r.url)
                 j = trafilatura.extract(r.text, url=r.url, output_format="json", with_metadata=True,
                                         include_comments=False, favor_recall=True)
                 if not j:
+                    if docs:                  # a listing page of reports: no article text, but the files are the point
+                        return {"url": r.url, "asked": u, "ok": True, "browser": r.browser, "chars": 0,
+                                "documents": docs, "text": ""}
                     return {"url": u, "ok": False, "error": "no main text found"}
                 d = json.loads(j)
             text = d.get("text") or ""
@@ -518,7 +541,7 @@ def cmd_article(args):
             store_text([u, r.url], text)    # cache under both the asked and the final URL, and archive
             return {"url": r.url, "asked": u, "ok": True, "browser": r.browser, "title": d.get("title"), "date": d.get("date"),
                     "author": d.get("author"), "sitename": d.get("sitename"), "chars": len(text),
-                    "text_file": graph.text_path(u), "figures": figs, "text": text[:12000]}
+                    "text_file": graph.text_path(u), "figures": figs, "documents": docs, "text": text[:12000]}
         except Exception as e:
             return {"url": u, "ok": False, "error": explain(e)}
 
