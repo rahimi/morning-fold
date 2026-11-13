@@ -82,11 +82,11 @@ Podcasts are `Source` nodes with `props.kind` "podcast". `fetch.py sources` read
 
 ## Reporters (Sonnet sub-agents)
 Reading and extraction is delegated to keep the expensive model for judgement and writing.
-- After `fetch.py sources`, choose the items worth reading (typically 30 to 60, highest relevance first, plus anything naming a watched company or person from `reader.md`). Split them into batches of about 6, **with no company or source in two batches** (overlap creates duplicate nodes), and start **4 to 6 reporters in parallel** with the Agent tool, **model `sonnet`**. Give each the reporter brief below, the reader's beats copied from `reader.md`, and its batch (URL, title, source id).
+- After `fetch.py sources`, choose the items worth reading (typically 30 to 60, highest relevance first, plus anything naming a watched company or person from `reader.md`). Split them into batches of about 6, **with no company or source in two batches** (overlap creates duplicate nodes), and start **4 to 6 reporters in parallel** with the Agent tool, **model `sonnet`**. Give each the reporter brief below, the reader's beats copied from `reader.md`, its `## Reporter notes` section when it has one (language- or field-specific extraction hints), and its batch (URL, title, source id).
 - Reporters write to the graph themselves (`graph.py` serialises parallel writes) and return a short report. Read the reports, not the articles. Open an article yourself only when a story or a thesis hinges on it.
 - Early-signal checks (company register pages, career pages, team pages, speaker lists) can be given to a reporter in the same way.
 
-### Reporter brief (pass this verbatim, then the beats)
+### Reporter brief (pass this verbatim, then the beats and the reporter notes)
 > You are a reporter for The Morning Fold, working in the instance repo at the current directory (tools are in `engine/tools/`). For each article in your batch:
 > 1. Read it with `python3 engine/tools/fetch.py article <url>` (this also caches its text for the quote check). The output shows the first 12,000 characters; when `chars` is larger, read the rest from `text_file`. When `figures` lists charts and the article's point rests on numbers, open the relevant images with the Read tool: a figure-read fact takes as `quote` the chart's heading or caption as it appears in the text (so the quote check passes), `props: {figure: "page 6"}` (or the image file name), confidence at most 0.7, and a note saying the number was read from the chart. If it isn't relevant to the reader's beats (below), skip it and say why in one line.
 > 2. Create an `Article` node: name = headline, props {url, published, lang, source: <source id>}, text = a dense summary (3 to 6 sentences) with all names, numbers and dates. Add the edge `Article FROM <source id>`.
@@ -140,4 +140,4 @@ No newspaper. The job is to make the memory and the way of working more correct 
 
 Never invent facts, numbers or quotes. If something essential fails (clone, publish), still do what you can and say what failed in your message.
 
-**Your final message is what the reader's phone shows** when the run finishes. First line: the edition and its lead ("Friday, 13 March 2026: <lead headline>"); second line: the page's link; then at most three short lines (what the replies changed, what failed). No run statistics; those go in the run log.
+**Your final message is what the reader's phone shows** when the run finishes: the "Tell the reader" message of the run, with the page's link on its second line. Keep it short; no run statistics, those go in the run log.
