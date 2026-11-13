@@ -154,7 +154,7 @@ def cmd_check(args):
         problems.append("sources.json: no sources")
     if not sf["queries"]:
         warnings.append("sources.json: no queries (one short ranking text per beat helps a lot)")
-    seen = set()
+    seen, odd_kinds = set(), []
     for k, s in enumerate(srcs):
         tag = f"sources.json[{k}] {s.get('name')!r}"
         if not s.get("name"):
@@ -169,7 +169,7 @@ def cmd_check(args):
         if not (s.get("url") or s.get("feed")):
             warnings.append(f"{tag}: no url or feed (it will be cited, never read)")
         if s.get("kind") and s["kind"] not in KINDS:
-            warnings.append(f"{tag}: kind {s['kind']!r} is not one of {sorted(KINDS)}")
+            odd_kinds.append(s["kind"])
         if s.get("kind") == "podcast" and not s.get("feed"):
             problems.append(f"{tag}: a podcast needs its feed URL (fetch.py podcast-find)")
         if s.get("kind") == "podcast" and s.get("group") not in ("trade", "heard"):
@@ -177,13 +177,17 @@ def cmd_check(args):
         if s.get("status") and s["status"] not in STATUSES:
             warnings.append(f"{tag}: status {s['status']!r} unknown")
 
+    if odd_kinds:
+        warnings.append(f"sources.json: {len(odd_kinds)} sources have a kind outside {sorted(KINDS)} "
+                        f"(e.g. {sorted(set(odd_kinds))[:3]}); fine as a label, only 'podcast' and 'calendar' change behaviour")
+
     theses = paths.load_json("theses.json", [])
     for k, t in enumerate(theses):
         tag = f"theses.json[{k}] {t.get('name')!r}"
         if not t.get("name") or not t.get("claim"):
             problems.append(f"{tag}: needs name and claim (the claim states exactly how it resolves)")
         p = t.get("probability")
-        if not isinstance(p, (int, float)) or not 0 <= p <= 1:
+        if t.get("status", "open") == "open" and (not isinstance(p, (int, float)) or not 0 <= p <= 1):
             problems.append(f"{tag}: probability must be between 0 and 1")
         try:
             datetime.date.fromisoformat(str(t.get("resolves")))
