@@ -1,0 +1,9 @@
+numpy
+onnxruntime
+tokenizers
+requests
+feedparser
+trafilatura
+pymupdf
+faster-whisper
+av==15.1.0

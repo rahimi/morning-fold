@@ -1,0 +1,63 @@
+<!-- Reply to the editor. Copied verbatim into both templates by tools/sync_reply.py; edit here, then run it. -->
+<style>
+.reply{display:flex;flex-direction:column;gap:8px;border:1px solid var(--rule);border-radius:6px;padding:14px;margin-top:6px}
+.reply[hidden]{display:none}
+.reply label{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.reply textarea{font:inherit;font-size:16px;color:var(--ink);background:transparent;border:1px solid var(--rule);border-radius:4px;padding:10px;resize:vertical;min-height:4.5em;width:100%;box-sizing:border-box}
+.reply textarea:focus-visible,.reply button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.reply .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.reply button{font-family:var(--mono);font-size:12px;color:var(--page);background:var(--accent);border:0;border-radius:999px;padding:9px 18px;cursor:pointer}
+.reply button:disabled{opacity:.45;cursor:default}
+.reply .status{font-size:14px;color:var(--muted);font-style:italic}
+.reply ol{list-style:none;padding:0;margin:4px 0 0;display:flex;flex-direction:column;gap:8px;font-size:14px}
+.reply ol li{border-top:1px solid var(--rule);padding-top:8px}
+.reply .when{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.reply .outcome{color:var(--muted);margin-top:2px}
+.reply .outcome b{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+</style>
+<section class="reply" id="reply" hidden aria-label="Reply to the editor">
+  <label for="reply-text">Reply to the editor</label>
+  <textarea id="reply-text" rows="3" placeholder="One line is enough. Tomorrow's run reads it."></textarea>
+  <div class="bar"><button id="reply-send" type="button" disabled>Send</button><span class="status" id="reply-status" role="status"></span></div>
+  <ol id="reply-log" aria-label="Your recent replies"></ol>
+</section>
+<script>
+(async function(){
+  const box=document.getElementById('reply');
+  if(!box||!window.claude||!claude.use) return;
+  const edition=(document.querySelector('meta[name="fold:edition"]')||{}).content||'';
+  const [db,user]=await Promise.all([claude.use('db'),claude.use('user')]);
+  if(!db||!user||!(await user.isOwner())) return;
+  box.hidden=false;
+  const text=document.getElementById('reply-text'), send=document.getElementById('reply-send'),
+        status=document.getElementById('reply-status'), log=document.getElementById('reply-log');
+  const col=db.collection('replies');
+  text.addEventListener('input',()=>{ send.disabled=!text.value.trim(); });
+  send.addEventListener('click',async()=>{
+    const t=text.value.trim(); if(!t) return;
+    send.disabled=true; status.textContent='Sending…';
+    try{
+      await col.add({edition, text:t, sent_at:new Date().toISOString(), status:'new'});
+      text.value=''; status.textContent='Sent. Tomorrow’s run reads it.';
+    }catch(e){ status.textContent='Not sent. Try again in a moment.'; send.disabled=false; }
+  });
+  const fmt=s=>{ try{return new Date(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});}catch(e){return '';} };
+  const timer=setTimeout(()=>{ if(!log.childElementCount) status.textContent='Earlier replies can’t be loaded right now.'; },10000);
+  col.orderBy('sent_at','desc').limit(5).onSnapshot(snap=>{
+    if(!snap.metadata.fromCache) clearTimeout(timer);
+    log.replaceChildren(...snap.docs.map(d=>{
+      const r=d.data()||{}, li=document.createElement('li');
+      const w=document.createElement('div'); w.className='when';
+      w.textContent=fmt(r.sent_at)+(r.status==='handled'?' · handled':' · waiting for the next run');
+      const p=document.createElement('div'); p.textContent=r.text||'';
+      li.append(w,p);
+      if(r.status==='handled'&&r.outcome){
+        const o=document.createElement('div'); o.className='outcome';
+        const b=document.createElement('b'); b.textContent='Editor ';
+        o.append(b, document.createTextNode(r.outcome)); li.append(o);
+      }
+      return li;
+    }));
+  },()=>{ clearTimeout(timer); });
+})();
+</script>

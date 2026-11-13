@@ -1,0 +1,15 @@
+{
+ "queries": [
+  "insurance claims automation AI production underwriting",
+  "insurance supervisor AI governance model risk consultation",
+  "insurer appoints chief data officer head of claims AI",
+  "reinsurance catastrophe pricing capacity primary insurers"
+ ],
+ "sources": [
+  {"id": "source:insurance-journal", "name": "Insurance Journal", "kind": "feed", "url": "https://www.insurancejournal.com/", "feed": "https://www.insurancejournal.com/rss/news/", "lang": "en", "cadence": "daily", "status": "active"},
+  {"id": "source:reinsurance-news", "name": "Reinsurance News", "kind": "feed", "url": "https://www.reinsurancene.ws/", "feed": "https://www.reinsurancene.ws/feed/", "lang": "en", "cadence": "daily", "status": "active"},
+  {"id": "source:artemis", "name": "Artemis", "kind": "feed", "url": "https://www.artemis.bm/", "feed": "https://www.artemis.bm/feed/", "lang": "en", "cadence": "daily", "status": "candidate"},
+  {"id": "source:bank-of-england-news", "name": "Bank of England news", "kind": "feed", "url": "https://www.bankofengland.co.uk/news", "feed": "https://www.bankofengland.co.uk/rss/news", "lang": "en", "cadence": "daily", "status": "active", "text": "Regulator: prudential supervision of insurers."},
+  {"id": "source:leadership-in-insurance-podcast", "name": "The Leadership in Insurance Podcast", "kind": "podcast", "group": "trade", "feed": "https://feeds.acast.com/public/shows/62822c55f7114f0012f2582a", "lang": "en", "cadence": "weekly", "status": "candidate"}
+ ]
+}

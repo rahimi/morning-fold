@@ -1,0 +1,23 @@
+{
+ "number": 1,
+ "date": "2026-03-03",
+ "kind": "issue",
+ "note": "FICTIONAL example of the issue record the run writes next to each published edition.",
+ "stories": [
+  {"kicker": "Insurance · Claims AI", "headline": "Halcyon Mutual puts its claims bot on the payroll",
+   "deck": "The insurer moves motor-glass claims from pilot to production, and puts a number on it.",
+   "body": ["Halcyon Mutual says its claims assistant settles simple glass claims end to end."],
+   "from_memory": "On 27 February the supervisor proposed an inventory of customer-facing AI models (graph fact, sample).",
+   "stat": {"num": "38%", "label": "of glass claims settled without a handler in January (self-reported)"},
+   "my_read": "Watch whether Corvane or Brightwater name a glass-claims figure at Claims & Code; one more insurer would move the claims-savings thesis.",
+   "sources": ["https://example.com/policy-desk/halcyon-glass-claims"],
+   "origins_note": "Policy Desk plus Halcyon's own release (a primary source counts 2 for its own claim)",
+   "score": {"impact": 3, "novelty": 3, "origins": 2, "depth": 2, "total": 10}}
+ ],
+ "in_brief": [
+  {"kicker": "Insurtech · Deals", "headline": "Claimwise signs a second insurer", "text": "Sample brief.", "sources": ["https://example.com/sample"]}
+ ],
+ "theses": [{"name": "Two large insurers report AI claims savings this year", "p": 0.35, "move": "→"}],
+ "heard": [],
+ "letter": "Was the claims story worth a full page?"
+}

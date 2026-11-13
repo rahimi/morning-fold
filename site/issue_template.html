@@ -1,0 +1,277 @@
+<!--
+  The Morning Fold: daily issue template. Do not edit a copy of it by hand: write today's pages to a file and run
+    python3 engine/tools/site.py template issue --body <pages.html> --date YYYY-MM-DD --out <issue.html>
+  which fills the masthead, place and language from reader.md, pours the instance's site/theme.css into the
+  fold-theme style slot, puts the pages into the book element, the reply block onto the back page, and sets the
+  edition date.
+
+  CONTRACT (described in words on purpose; this comment holds no tags)
+  - The book element (the main element with class book) holds the pages and nothing else. Everything around it
+    is the engine: head, CSS, page navigation, script.
+  - The pages shipped inside the book are a FICTIONAL SAMPLE; each carries the data-sample attribute, and
+    check_issue.py refuses a page where one survives.
+  - Pages are section elements with class page, direct children of the book, ids p0 (cover), p1 ... pN.
+  - The reply block (synced from site/reply_snippet.html by tools/sync_reply.py) sits on the back page exactly
+    once. In the pages file, mark its place with a comment line reading REPLY alone; site.py inserts it there.
+
+  THEMING: colours and fonts are the CSS custom properties on :root (light) and in the dark-mode blocks.
+  Override them in the instance's site/theme.css (any subset; it may start with an @import of web fonts).
+-->
+<title>{{MASTHEAD}}</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="fold:edition" content="YYYY-MM-DD">
+<meta name="fold:lang" content="{{LANG}}">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;0,6..96,700;1,6..96,500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a book. Folded (narrow) = one page per view, swipe; unfolded (wide) = two-page spread. */
+:root{
+  --paper:#eef0f3; --page:#f8f9fb; --ink:#1a2130; --muted:#5d6678; --rule:#cdd3dd; --accent:#2b4c8c; --ok:#2f7a4a; --no:#a3402f;
+  --display:"Bodoni Moda", "Didot", Georgia, serif;
+  --body:"Source Serif 4", Georgia, "Times New Roman", serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#0d1017; --page:#151a24; --ink:#e4e8ef; --muted:#97a0b2; --rule:#2c3445; --accent:#8fb0ec; --ok:#7fc79a; --no:#ee9a8a; color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#0d1017; --page:#151a24; --ink:#e4e8ef; --muted:#97a0b2; --rule:#2c3445; --accent:#8fb0ec; --ok:#7fc79a; --no:#ee9a8a; color-scheme:dark}
+html,body{height:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.55;
+  padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));
+  padding-block:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
+.book{flex:1;min-height:0;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;
+  scrollbar-width:none;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.08),0 10px 30px rgba(20,30,60,.10);background:var(--page)}
+.book::-webkit-scrollbar{display:none}
+.page{flex:0 0 100%;min-width:0;scroll-snap-align:start;overflow-y:auto;box-sizing:border-box;
+  padding:28px 22px 32px;display:flex;flex-direction:column;gap:14px}
+@media (min-width:720px){
+  .page{flex-basis:50%;padding:40px 44px}
+  .page:nth-child(odd){border-right:1px solid var(--rule)}
+}
+.kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+h1,h2{font-family:var(--display);font-weight:500;text-wrap:balance;margin:0;line-height:1.08}
+h2{font-size:clamp(28px,5.5vw,36px)}
+.deck{font-style:italic;color:var(--muted);font-size:18px;margin:0}
+p{margin:0;max-width:62ch}
+.read{border-top:1px solid var(--rule);padding-top:12px;display:flex;flex-direction:column;gap:6px}
+.read b{font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:500;color:var(--accent)}
+.num{font-family:var(--display);font-size:44px;line-height:1;color:var(--accent);font-variant-numeric:tabular-nums}
+.stat{display:flex;align-items:baseline;gap:12px}
+.stat span{color:var(--muted);font-size:15px}
+.folio{margin-top:auto;font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;padding-top:18px}
+/* cover */
+.cover{justify-content:flex-start}
+.mast{font-family:var(--display);font-size:clamp(32px,6vw,56px);font-style:italic;letter-spacing:-.01em;border-bottom:3px double var(--ink);padding-bottom:10px}
+.dateline{font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 16px}
+.toc{list-style:none;padding:0;margin:8px 0 0;display:flex;flex-direction:column}
+.toc li{display:grid;grid-template-columns:2.2em 1fr;gap:4px;padding:12px 0;border-bottom:1px solid var(--rule)}
+.toc li span{font-family:var(--mono);font-size:12px;color:var(--accent);padding-top:4px}
+.toc a{color:var(--ink);text-decoration:none;font-family:var(--display);font-size:19px;line-height:1.2}
+@media (max-width:719px){.page{padding:20px 18px 24px}.cover{gap:10px}.hint{font-size:13px}}
+.toc a:focus-visible,.nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hint{font-size:14px;color:var(--muted);font-style:italic}
+.src{font-size:14px;list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.src a{color:var(--accent)}
+.nav{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.nav button{font:inherit;color:var(--ink);background:none;border:1px solid var(--rule);border-radius:999px;padding:8px 16px;cursor:pointer}
+.nav button:disabled{opacity:.35;cursor:default}
+@media (prefers-reduced-motion:reduce){.book{scroll-behavior:auto}}
+/* You heard it: claims from the reader's podcasts, checked */
+.heard{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:12px}
+.heard li{border-top:1px solid var(--rule);padding-top:10px;display:flex;flex-direction:column;gap:4px}
+.heard .who{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.heard .claim{font-family:var(--display);font-size:19px;line-height:1.25}
+.heard .verdict{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;border:1px solid currentColor;border-radius:999px;padding:2px 9px;align-self:flex-start}
+.v-ok{color:var(--ok)}.v-no{color:var(--no)}.v-open{color:var(--muted)}
+.heard .why{font-size:15px;color:var(--muted)}
+.heard .why a{color:var(--accent)}
+/* From the memory: what the paper knew before today, dated */
+.mem{border-left:2px solid var(--accent);padding-left:12px}
+.mem b{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:500;color:var(--accent);margin-right:6px}
+/* In brief: the items below the story threshold, one paragraph each */
+.briefs{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:12px}
+.briefs li{border-top:1px solid var(--rule);padding-top:10px;display:flex;flex-direction:column;gap:3px}
+.briefs .bk{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.briefs .bh{font-family:var(--display);font-size:19px;line-height:1.2}
+.briefs p{font-size:15.5px}
+.briefs .bs{font-family:var(--mono);font-size:11px;color:var(--muted)}
+/* Theses on the back page: name, probability, move since the last issue, one line why */
+.theses{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:8px;font-size:15px}
+.theses li{display:grid;grid-template-columns:1fr auto;gap:2px 12px;border-top:1px solid var(--rule);padding-top:8px}
+.theses .tn{font-weight:600;line-height:1.3}
+.theses .tp{font-family:var(--mono);font-size:13px;color:var(--accent);white-space:nowrap}
+.theses .tw{grid-column:1/-1;color:var(--muted);font-size:14px}
+.theses .record{display:block;font-family:var(--mono);font-size:11px;color:var(--muted);border-top:0}
+</style>
+<style id="fold-theme"></style>
+
+<main class="book" id="book" aria-label="{{MASTHEAD}}">
+  <!-- Sample pages start: a fictional example, replaced by site.py with today's pages. -->
+
+  <section class="page cover" id="p0" data-sample>
+    <div class="mast">{{MASTHEAD}}</div>
+    <div class="dateline"><span>Tuesday, 3 March 2026</span><span>{{PLACE}}</span></div>
+    <p class="hint">Folded, swipe through one page at a time. Unfold the phone and the issue becomes a two-page spread.</p>
+    <ul class="toc">
+      <li><span>I</span><a href="#p1">Halcyon Mutual puts its claims bot on the payroll</a></li>
+      <li><span>II</span><a href="#p2">The supervisor wants to see your model inventory</a></li>
+      <li><span>III</span><a href="#p3">In brief</a></li>
+      <li><span>IV</span><a href="#p4">Letter to the editor</a></li>
+    </ul>
+    <div class="folio"><span>Written overnight for one reader</span><span>Cover</span></div>
+  </section>
+
+  <!-- Story pages: between min_stories and max_stories (reader.md), one per story above the bar; ids p1..pN, then In brief, then the back page. -->
+  <section class="page" id="p1" data-sample>
+    <div class="kicker">Insurance · Claims AI</div>
+    <h2>Halcyon Mutual puts its claims bot on the payroll</h2>
+    <p class="deck">The fictional insurer moves motor-glass claims from pilot to production, and puts a number on it.</p>
+    <div class="stat"><div class="num">38%</div><span>of glass claims settled without a handler in January, says Halcyon (sample figure)</span></div>
+    <p>Halcyon Mutual told the (fictional) trade weekly Policy Desk that its claims assistant now settles simple glass claims end to end. Its own release gives the same figure; the vendor, Claimwise, claims a higher one.</p>
+    <p class="mem"><b>From the memory</b>Sample: last September, Halcyon's chief data officer Ingrid Solberg said production would wait for the supervisor's guidance. Every story carries one dated claim like this from the graph or the archive.</p>
+    <p>The two outlets agree on the share; they disagree on cost. Policy Desk quotes a broker who expects premiums to follow; Halcyon does not say.</p>
+    <div class="read"><b>My read</b><p>A sample "My read": a specific consequence for the reader, a decision or a forecast, never a summary of the story above.</p></div>
+    <div class="folio"><span>Policy Desk · Halcyon Mutual</span><span>1</span></div>
+  </section>
+
+  <section class="page" id="p2" data-sample>
+    <div class="kicker">Regulation · AI</div>
+    <h2>The supervisor wants to see your model inventory</h2>
+    <p class="deck">A fictional regulator's consultation asks insurers to list every AI model that touches a customer.</p>
+    <p>The Northmark Insurance Authority opened a consultation on AI governance, open until 30 April. Two trade outlets and the authority's own paper agree on the core ask: an inventory of models, owners and controls.</p>
+    <div class="read"><b>My read</b><p>Sample text. Say what the reader should do, watch or decide, and tie it to a thesis where one bears on it.</p></div>
+    <div class="folio"><span>Northmark Insurance Authority · Risk Ledger</span><span>2</span></div>
+  </section>
+
+  <section class="page" id="p3" data-sample>
+    <!-- In brief: items below the story bar, up to max_in_brief, one paragraph each; leave the page out when there are none. -->
+    <div class="kicker">In brief</div>
+    <ul class="briefs">
+      <li><span class="bk">Insurtech · Deals</span>
+        <span class="bh">Claimwise signs a second insurer</span>
+        <p>Two or three sentences: what happened, and why it matters to the reader in one clause.</p>
+        <span class="bs">Source · Source</span></li>
+    </ul>
+    <div class="folio"><span>Below the line, still worth knowing</span><span>3</span></div>
+  </section>
+
+  <section class="page" id="p4" data-sample>
+    <!-- You heard it: only when the reader's own podcasts (group "heard") had checked claims since the last edition. -->
+    <div class="kicker">You heard it</div>
+    <ul class="heard">
+      <li><span class="who">Sample Show · 1 Mar · A Guest</span>
+        <span class="claim">"Example claim as said on the show."</span>
+        <span class="verdict v-ok">Holds up</span>
+        <span class="why">One line on what the written record says, with <a href="#">the source</a>.</span></li>
+    </ul>
+    <div class="kicker" style="margin-top:12px">Back page</div>
+    <h2>Letter to the editor</h2>
+    <p>One or two questions to the reader. Sample: was the regulation story worth a full page?</p>
+<!-- REPLY:start -->
+<style>
+.reply{display:flex;flex-direction:column;gap:8px;border:1px solid var(--rule);border-radius:6px;padding:14px;margin-top:6px}
+.reply[hidden]{display:none}
+.reply label{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.reply textarea{font:inherit;font-size:16px;color:var(--ink);background:transparent;border:1px solid var(--rule);border-radius:4px;padding:10px;resize:vertical;min-height:4.5em;width:100%;box-sizing:border-box}
+.reply textarea:focus-visible,.reply button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.reply .bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.reply button{font-family:var(--mono);font-size:12px;color:var(--page);background:var(--accent);border:0;border-radius:999px;padding:9px 18px;cursor:pointer}
+.reply button:disabled{opacity:.45;cursor:default}
+.reply .status{font-size:14px;color:var(--muted);font-style:italic}
+.reply ol{list-style:none;padding:0;margin:4px 0 0;display:flex;flex-direction:column;gap:8px;font-size:14px}
+.reply ol li{border-top:1px solid var(--rule);padding-top:8px}
+.reply .when{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.reply .outcome{color:var(--muted);margin-top:2px}
+.reply .outcome b{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+</style>
+<section class="reply" id="reply" hidden aria-label="Reply to the editor">
+  <label for="reply-text">Reply to the editor</label>
+  <textarea id="reply-text" rows="3" placeholder="One line is enough. Tomorrow's run reads it."></textarea>
+  <div class="bar"><button id="reply-send" type="button" disabled>Send</button><span class="status" id="reply-status" role="status"></span></div>
+  <ol id="reply-log" aria-label="Your recent replies"></ol>
+</section>
+<script>
+(async function(){
+  const box=document.getElementById('reply');
+  if(!box||!window.claude||!claude.use) return;
+  const edition=(document.querySelector('meta[name="fold:edition"]')||{}).content||'';
+  const [db,user]=await Promise.all([claude.use('db'),claude.use('user')]);
+  if(!db||!user||!(await user.isOwner())) return;
+  box.hidden=false;
+  const text=document.getElementById('reply-text'), send=document.getElementById('reply-send'),
+        status=document.getElementById('reply-status'), log=document.getElementById('reply-log');
+  const col=db.collection('replies');
+  text.addEventListener('input',()=>{ send.disabled=!text.value.trim(); });
+  send.addEventListener('click',async()=>{
+    const t=text.value.trim(); if(!t) return;
+    send.disabled=true; status.textContent='Sending…';
+    try{
+      await col.add({edition, text:t, sent_at:new Date().toISOString(), status:'new'});
+      text.value=''; status.textContent='Sent. Tomorrow’s run reads it.';
+    }catch(e){ status.textContent='Not sent. Try again in a moment.'; send.disabled=false; }
+  });
+  const fmt=s=>{ try{return new Date(s).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});}catch(e){return '';} };
+  const timer=setTimeout(()=>{ if(!log.childElementCount) status.textContent='Earlier replies can’t be loaded right now.'; },10000);
+  col.orderBy('sent_at','desc').limit(5).onSnapshot(snap=>{
+    if(!snap.metadata.fromCache) clearTimeout(timer);
+    log.replaceChildren(...snap.docs.map(d=>{
+      const r=d.data()||{}, li=document.createElement('li');
+      const w=document.createElement('div'); w.className='when';
+      w.textContent=fmt(r.sent_at)+(r.status==='handled'?' · handled':' · waiting for the next run');
+      const p=document.createElement('div'); p.textContent=r.text||'';
+      li.append(w,p);
+      if(r.status==='handled'&&r.outcome){
+        const o=document.createElement('div'); o.className='outcome';
+        const b=document.createElement('b'); b.textContent='Editor ';
+        o.append(b, document.createTextNode(r.outcome)); li.append(o);
+      }
+      return li;
+    }));
+  },()=>{ clearTimeout(timer); });
+})();
+</script>
+<!-- REPLY:end -->
+    <div class="kicker" style="margin-top:12px">Theses</div>
+    <ul class="theses">
+      <li><span class="tn">Two large insurers report AI claims savings this year</span><span class="tp">40% ↑</span>
+        <span class="tw">One line why it moved, or "nothing new".</span></li>
+      <li class="record">Track record: one line from graph.py score, once anything has resolved or been confirmed.</li>
+    </ul>
+    <div class="kicker" style="margin-top:12px">Sources</div>
+    <ul class="src">
+      <li><a href="#" target="_blank" rel="noopener">Every source the issue used, as a link</a></li>
+    </ul>
+    <div class="folio"><span>Next issue: tomorrow</span><span>4</span></div>
+  </section>
+  <!-- Sample pages end. -->
+</main>
+
+<nav class="nav" aria-label="Pages">
+  <button id="prev" type="button">← Back</button>
+  <span id="where">Cover</span>
+  <button id="next" type="button">Turn →</button>
+</nav>
+
+<script>
+(function(){
+  const book=document.getElementById('book'), pages=[...book.children];
+  const prev=document.getElementById('prev'), next=document.getElementById('next'), where=document.getElementById('where');
+  const perView=()=>window.matchMedia('(min-width:720px)').matches?2:1;
+  const pageW=()=>book.clientWidth/perView();
+  const idx=()=>Math.round(book.scrollLeft/pageW());
+  function update(){
+    const i=idx(), n=perView(), last=pages.length-n;
+    prev.disabled=i<=0; next.disabled=i>=last;
+    where.textContent = n===2 ? (i===0?'Cover · 1':`${i} – ${Math.min(i+1,pages.length-1)}`) : (i===0?'Cover':`Page ${i} of ${pages.length-1}`);
+  }
+  function go(i){ book.scrollTo({left:i*pageW(),behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'}); }
+  prev.addEventListener('click',()=>go(Math.max(0,idx()-perView())));
+  next.addEventListener('click',()=>go(Math.min(pages.length-perView(),idx()+perView())));
+  book.addEventListener('scroll',()=>requestAnimationFrame(update),{passive:true});
+  window.addEventListener('resize',update);
+  document.querySelectorAll('.toc a').forEach(a=>a.addEventListener('click',e=>{
+    e.preventDefault(); const i=pages.indexOf(document.querySelector(a.getAttribute('href')));
+    go(perView()===2? i-(i%2) : i);
+  }));
+  document.addEventListener('keydown',e=>{ if(e.key==='ArrowRight')next.click(); if(e.key==='ArrowLeft')prev.click(); });
+  update();
+})();
+</script>

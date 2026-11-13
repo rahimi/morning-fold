@@ -1,0 +1,25 @@
+{
+ "note": "FICTIONAL example of a run log.",
+ "kind": "issue",
+ "date": "2026-03-03",
+ "started": "2026-03-03T04:40:00Z",
+ "ended": "2026-03-03T06:05:00Z",
+ "environment_cached": true,
+ "browser": "available; rescued none",
+ "replies": [],
+ "sources": {"read": 5, "ok": 4, "failed": [{"id": "source:artemis", "error": "HTTP 503"}]},
+ "items": {"ranked": 84, "read": 31},
+ "reporters": [{"batch": 1, "articles": 6, "skipped": 2, "facts": 11}],
+ "candidates": [
+  {"headline": "Halcyon Mutual puts its claims bot on the payroll", "impact": 3, "novelty": 3, "depth": 2, "origins": 2, "total": 10,
+   "corroboration_search": "items list copies: none; graph also-list: none; WebSearch 'Halcyon Mutual 38 percent glass claims': insurer's own release found (primary source, counts 2)",
+   "result": "story"}
+ ],
+ "dossiers": [{"story": 1, "entities": ["Halcyon Mutual", "Claimwise"]}],
+ "desk_check": "one claim lacked its source in the draft; added",
+ "rival_read": "argued the share says nothing about cost; My read qualified",
+ "grounding_refused": [],
+ "rules_counted": [{"rule": "Vendor claims need a named customer", "vote": "helpful"}],
+ "problems": [],
+ "next_time": "start the podcast transcription earlier"
+}

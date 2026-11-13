@@ -1,0 +1,4 @@
+/* Example override: a warmer paper and a green accent. Any subset of the template's tokens may be set here. */
+:root{ --paper:#f3efe6; --page:#fbf8f1; --accent:#2f6b4f; }
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){ --paper:#11140f; --page:#181c16; --accent:#8cc9a6; }}
+:root[data-theme="dark"]{ --paper:#11140f; --page:#181c16; --accent:#8cc9a6; }

@@ -1,0 +1,17 @@
+{
+ "model": "intfloat/multilingual-e5-small, int8-quantized ONNX (Xenova conversion)",
+ "source": "https://huggingface.co/Xenova/multilingual-e5-small",
+ "revision": "761b726dd34fb83930e26aab4e9ac3899aa1fa78",
+ "base_model": "https://huggingface.co/intfloat/multilingual-e5-small",
+ "license": "MIT (base model intfloat/multilingual-e5-small); the Xenova ONNX conversion declares no separate licence",
+ "files": {
+  "e5-small-int8.onnx": {"from": "onnx/model_quantized.onnx", "size": 118308185, "sha256": "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193"},
+  "tokenizer.json": {"from": "tokenizer.json", "size": 17082730, "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39"},
+  "config.json": {"from": "config.json", "size": 658, "sha256": "cb99455288675345e1a4f411438d5d0adbba5fbd3a67ea4fb03c015433b996c1"},
+  "tokenizer_config.json": {"from": "tokenizer_config.json", "size": 443, "sha256": "a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b"},
+  "special_tokens_map.json": {"from": "special_tokens_map.json", "size": 167, "sha256": "d05497f1da52c5e09554c0cd874037a083e1dc1b9cfd48034d1c717f1afc07a7"}
+ },
+ "dims": 384,
+ "usage": "prefix stored text with 'passage: ' and search text with 'query: '; mean pooling; L2 normalize",
+ "fetch": "python3 tools/get_model.py (verifies every sha256); --split writes the onnx in parts under 100 MB for committing to an instance repo"
+}

@@ -1,0 +1,26 @@
+# The engine is public. Weights and any instance content never belong here.
+model/*
+!model/MODEL.json
+__pycache__/
+*.pyc
+*.tmp
+.venv/
+.DS_Store
+
+# Content directories: if a tool is run with the engine as its home by mistake, nothing it writes gets committed.
+/graph/
+/archive/
+/issues/
+/runs/
+/index/
+/backfill/
+/data/
+/reader.md
+/sources.json
+/theses.json
+examples/instance/index/
+examples/instance/backfill/
+examples/instance/graph/vectors.npz
+examples/instance/graph/.lock
+/.work/
+examples/instance/.work/

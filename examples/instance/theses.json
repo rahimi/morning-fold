@@ -1,0 +1,8 @@
+[
+ {"name": "Two large insurers report AI claims savings this year",
+  "claim": "At least two of the ten largest insurers in Mara's market publish a quantified saving from AI claims handling (a figure, in an annual report, results or an official release) by 31 December 2026.",
+  "probability": 0.35, "resolves": "2026-12-31", "why": "Fictional seed: pilots are common, published figures are not."},
+ {"name": "The supervisor requires an AI model inventory",
+  "claim": "The Northmark Insurance Authority makes a register of AI models used in customer-facing decisions mandatory for insurers (final rules, not a consultation) by 30 June 2027.",
+  "probability": 0.5, "resolves": "2027-06-30", "why": "Fictional seed: a consultation is open; final rules usually follow within a year."}
+]

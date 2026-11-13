@@ -1,0 +1,10 @@
+# A Morning Fold instance. Keep this repository PRIVATE.
+__pycache__/
+*.tmp
+.DS_Store
+.venv/
+graph/.lock
+graph/vectors.npz.tmp
+backfill/audio/
+backfill/.lock
+.work/
