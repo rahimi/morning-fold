@@ -13,11 +13,14 @@
 
   python3 engine/tools/instance.py leakcheck <file|->
       The leak gate for anything sent to the public engine repository (an issue, a comment, a diff).
-      Looks for the instance's private terms in the text: reader.md's name, place, masthead, artifact_url
-      and watch list, the names and hostnames in sources.json, and the names and aliases of the graph's
-      people, companies, funds, regulators and sources. Whole words, any case. Graph and source names
-      under 3 characters, or already in the engine's own public files (docs, tools, templates, the fictional
-      example), are not checked. Prints the hits; exit 1 on any hit, 0 when clean.
+      Run it from the instance root with the instance's own engine/; it refuses (exit 2) a home without
+      reader.md or inside the engine. Looks for the instance's private terms in the text: reader.md's name,
+      place, masthead, artifact_url and watch list, and the capitalised words of its profile; the names and
+      hostnames in sources.json; the names and aliases of the graph's people (also the surname), companies
+      and funds (also without a legal suffix such as AG, GmbH, plc), regulators, sources and events.
+      Whole words, any case, across line breaks and hyphens, umlauts also as ae/oe/ue/ss. Terms other than
+      reader.md's settings are not checked when under 3 characters or already in the engine's own public
+      files (docs, tools, templates, the fictional example). Prints the hits; exit 1 on any hit, 0 when clean.
 """
 import collections
 import datetime
@@ -232,48 +235,73 @@ def cmd_check(args):
         sys.exit(1)
 
 
+SUFFIX = re.compile(r"(?:[\s,]+(?:ag|se|gmbh|kgaa|kg|group|gruppe|holding|plc|inc\.?|n\.v\.|s\.a\.|s\.p\.a\.|ltd\.?|&\s*co\.?))+$")
+UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
+
+
 def cmd_leakcheck(args):
+    home = os.path.realpath(paths.HOME)
+    engine = os.path.realpath(paths.ENGINE)
+    if not paths.reader()["path"] or home == engine or home.startswith(engine + os.sep):
+        print(json.dumps({"home": home, "ok": False, "problem": "not an instance: run from the instance root, "
+                          "without MORNING_FOLD_HOME pointing elsewhere"}, ensure_ascii=False, indent=1))
+        sys.exit(2)
     if len(args) != 1:
-        sys.exit(__doc__)
+        print(__doc__, file=sys.stderr)
+        sys.exit(2)
     text = sys.stdin.read() if args[0] == "-" else open(args[0], encoding="utf-8").read()
     import graph
-    public = []
+    toks = lambda t: tuple(re.findall(r"\w+", t.lower().translate(UMLAUTS)))   # whole words; any separator between them
+    lines = []      # the engine's public files, one token line per file line, so a phrase never spans lines
     for d, sub, files in os.walk(paths.ENGINE):
         sub[:] = [x for x in sub if not x.startswith(".") and x != "model"]
-        public += [open(os.path.join(d, f), encoding="utf-8", errors="ignore").read()
-                   for f in files if f.endswith((".md", ".py", ".sh", ".json", ".jsonl", ".html", ".css"))]
-    public = " %s " % " ".join(re.findall(r"\w+", " ".join(public).lower()))
-    terms, skipped = {}, 0
+        for f in files:
+            if f.endswith((".md", ".py", ".sh", ".json", ".jsonl", ".html", ".css")):
+                lines += [" ".join(toks(line)) for line in open(os.path.join(d, f), encoding="utf-8", errors="ignore")]
+    words, public = {w for line in lines for w in line.split()}, " %s " % " \n ".join(lines)
+    terms, skipped = {}, set()
+
+    def add(t, where, always=False):
+        tk = toks(t or "")
+        if not tk or tk in terms or tk in skipped:
+            return
+        if not always and (len(" ".join(tk)) < 3 or (tk[0] in words if len(tk) == 1 else " %s " % " ".join(tk) in public)):
+            skipped.add(tk)
+        else:
+            terms[tk] = (t.strip(), where)
+
     r = paths.reader()
     for k in ("name", "place", "masthead", "artifact_url"):
         if r["own"].get(k) and r["own"][k] != paths.DEFAULTS[k]:
-            terms.setdefault(str(r["own"][k]).lower(), "reader.md " + k)
+            add(str(r["own"][k]), "reader.md " + k, True)
     for w in paths.cfg("watch"):
-        terms.setdefault(w.lower(), "reader.md watch")
-    others = []
+        add(w, "reader.md watch", True)
+    for run in re.findall(r"\w*[A-ZÄÖÜ]\w*(?:[ \-]+\w*[A-ZÄÖÜ]\w*)*", paths.profile_text()):
+        for t in [run] + run.split():
+            add(t, "reader.md profile")
     for s in paths.sources_file()["sources"]:
-        others += [(s.get("name"), "sources.json name")]
-        others += [(re.sub(r"^www\.", "", re.sub(r"^\w+://([^/:]+).*", r"\1", s[k])), "sources.json host")
-                   for k in ("url", "feed") if s.get(k)]
+        add(s.get("name"), "sources.json name")
+        for k in ("url", "feed"):
+            if s.get(k):
+                add(re.sub(r"^www\.", "", re.sub(r"^\w+://([^/:]+).*", r"\1", s[k])), "sources.json host")
     nodes, _ = graph.load()
     for n in nodes.values():
-        if n["type"] in ("Person", "Company", "Fund", "Regulator", "Source"):
-            others += [(nm, "graph " + n["type"]) for nm in [n.get("name")] + n.get("aliases", [])]
-    word = lambda t: r"(?<!\w)" + re.escape(t) + r"(?!\w)"
-    for t, where in others:
-        t = (t or "").strip().lower()
-        if not t or t in terms:
-            continue
-        if len(t) < 3 or " %s " % " ".join(re.findall(r"\w+", t)) in public:
-            skipped += 1
-            continue
-        terms[t] = where
-    hits = collections.Counter()
-    if terms:
-        rx = re.compile("|".join(word(t) for t in sorted(terms, key=len, reverse=True)), re.I)
-        hits.update(m.group(0).lower() for m in rx.finditer(text))
-    res = {"terms": len(terms), "not_checked": skipped,
-           "hits": [{"term": t, "from": terms.get(t, ""), "count": c} for t, c in hits.most_common()], "ok": not hits}
+        if n["type"] in ("Person", "Company", "Fund", "Regulator", "Source", "Event"):
+            for nm in [n.get("name") or ""] + n.get("aliases", []):
+                add(nm, "graph " + n["type"])
+                short = SUFFIX.sub("", nm.lower()) if n["type"] in ("Company", "Fund") else \
+                    (nm.split()[-1] if n["type"] == "Person" and len(nm.split()) > 1 else "")
+                if len(short) >= (4 if n["type"] != "Person" else 5):
+                    add(short, "graph " + n["type"])
+    first = collections.defaultdict(list)
+    for tk in terms:
+        first[tk[0]].append(tk)
+    tt, hits = toks(text), collections.Counter()
+    for i, w in enumerate(tt):
+        hits.update(tk for tk in first.get(w, ()) if tt[i:i + len(tk)] == tk)
+    res = {"home": home, "terms": len(terms), "not_checked": len(skipped),
+           "hits": [{"term": terms[tk][0], "from": terms[tk][1], "count": c} for tk, c in hits.most_common()],
+           "ok": not hits}
     print(json.dumps(res, ensure_ascii=False, indent=1))
     if hits:
         sys.exit(1)
@@ -281,7 +309,10 @@ def cmd_leakcheck(args):
 
 if __name__ == "__main__":
     cmds = {"init": cmd_init, "check": cmd_check, "leakcheck": cmd_leakcheck}
-    c = sys.argv[1] if len(sys.argv) > 1 else ""
-    if c not in cmds:
-        sys.exit(__doc__)
-    cmds[c](sys.argv[2:])
+    c, args = (sys.argv[1] if len(sys.argv) > 1 else ""), sys.argv[2:]
+    if c in ("", "-h", "--help") or {"-h", "--help"} & set(args):
+        print(__doc__); sys.exit(0)
+    bad = [a for a in args if a.startswith("-") and a != "-"]
+    if c not in cmds or bad:     # nothing runs on a typo: `init --help` would lay out an instance in ./--help
+        print(f"{__doc__}\nunknown {'flag ' + bad[0] if c in cmds else 'command ' + c}", file=sys.stderr); sys.exit(2)
+    cmds[c](args)

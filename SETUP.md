@@ -88,7 +88,7 @@ Use `engine/examples/instance/` (a fictional reader) as the **format** reference
 | `min_stories`, `max_stories`, `max_in_brief`, `max_pages` | issue size | 2, 6, 8, 10 |
 | `max_item_age_days`, `recency_grace_days`, `recency_decay`, `name_boost` | ranking | 21, 2, 0.01, 0.08 |
 | `podcast_budget_weekday`, `podcast_budget_weekend` | minutes of audio transcribed locally per run | 90, 240 |
-| `engine_feedback` | engine problems a run finds: `off` tells the reader only; `issue` files them on the engine's GitHub; `pr` also opens a pull request for small fixes (needs `gh` logged in) | off |
+| `engine_feedback` | engine problems a run finds: `off` tells the reader only; `issue` files them on the engine's GitHub; `pr` also opens a pull request for small fixes (needs `gh` logged in). Issues and pull requests are public: two gates check every text, but can't make it risk-free | off |
 
 Values are `key: value` lines; lists and quoted strings are JSON (`issue_days: ["Mon", "Wed", "Fri"]`). `python3 engine/tools/instance.py check` validates all of it. The tools read `locale`, `timezone`, `quiet_window`, `profile`, `watch`, `regions`, the ranking keys, `podcast_budget_weekday` and the masthead/place/language (templates); the rest (story bar, issue size, schedule, `name`) is read by the editor from `graph.py brief`. Set `quiet_window` to the scheduled run's start time through `publish_by` plus 30 minutes (step 8).
 
@@ -183,4 +183,4 @@ Engine changes (a tool fix, a better method in RUN.md, a template improvement) g
 - Before committing, grep the diff for the user's own names, employer, city and watched companies; it must find nothing.
 - Test the change against `examples/instance` (`MORNING_FOLD_HOME=examples/instance python3 tools/graph.py brief`, `check_issue.py`, `fetch.py rank`) and, privately, against the user's own instance.
 - Then open a pull request against the engine.
-- Runs can do this themselves when `engine_feedback` is `issue` or `pr` (RUN.md, dreaming step 6). Issues and pull requests are public, so every text and diff first passes `instance.py leakcheck`, which refuses the instance's names, sources and graph entities.
+- Runs can do this themselves when `engine_feedback` is `issue` or `pr` (RUN.md, dreaming step 6). Issues and pull requests are public. Every text and diff first passes `instance.py leakcheck`, which refuses the instance's names, sources and graph entities, and a sub-agent that sees only `reader.md` and the text; together they lower the risk of a leak, they don't remove it.
