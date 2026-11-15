@@ -941,9 +941,12 @@ def cmd_audit(args):
     orphans = [brief(n) for n in nodes.values() if n["type"] in ACTOR_TYPES + ("Topic",)
                and not any(n["id"] in (e["src"], e["dst"]) for e in edges.values())]
     thin = [brief(n) for n in ents if not n.get("text")]
+    month = str(today - datetime.timedelta(days=30))       # articles: read in runs (not backfill) in the last 30 days
+    read = collections.Counter(n.get("props", {}).get("source") for n in nodes.values()
+                               if n["type"] == "Article" and not n.get("backfill") and n.get("created", "") >= month)
     src_fail = [{"id": n["id"], "name": n["name"], "status": n.get("props", {}).get("status"),
                  "failures": n.get("props", {}).get("failures"), "stories": n.get("props", {}).get("stories", 0),
-                 "articles": n.get("props", {}).get("articles", 0)}
+                 "articles": read[n["id"]]}
                 for n in nodes.values() if n["type"] == "Source"]
     rules = [{"id": n["id"], "name": n["name"], "text": n.get("text"), "created": n.get("created")}
              for n in nodes.values() if n["type"] == "Rule"]
@@ -1148,7 +1151,7 @@ def cmd_help(args):
             "Rule": "name = the lesson in a few words, text = the rule and why, props {origin, helpful, harmful}",
             "Thesis": "name, text = claim, props {claim, probability, resolves, status: open|resolved_true|resolved_false|withdrawn, origin: reader|editor, history: [{date, probability, why}]}",
             "Signal": "name = the claim, text = what was seen where, props {published, kind, status: open|confirmed|refuted, confirmed_on, confirmed_by}",
-            "Source": "props {url, feed, kind, group, lang, cadence, status, last_read, failures, failed_on, articles, stories} (fetch.py sources sets last_read, failures, failed_on)",
+            "Source": "props {url, feed, kind, group, lang, cadence, status, last_read, failures, failed_on, stories} (fetch.py sources sets last_read, failures, failed_on; audit counts its articles of the last 30 days)",
             "Story": "name = headline, text = deck, props {date, issue, kicker, position}; edges CITES articles, ABOUT entities",
             "Issue": "name, props {number, date, kind: issue|week-ahead, url}; edges CONTAINS stories",
             "Article": "name = headline, text = dense summary, props {url, published, lang, source, kind?, show?}; edge FROM its Source",
