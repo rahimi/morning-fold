@@ -18,6 +18,7 @@ fact_types: ["product and programme launches with numbers", "regulatory acts and
 story_bar: 8
 min_origins: 2
 max_stories: 5
+engine_feedback: issue
 ---
 
 Mara Lindqvist is an independent analyst in Port Aldine who covers underwriting and claims technology for insurers. She follows what insurers actually put into production, what the insurance supervisor expects of AI and models, and which insurtechs win real customers. She reads as a practitioner: concrete programmes, figures and deadlines, not announcements.

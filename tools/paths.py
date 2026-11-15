@@ -90,6 +90,7 @@ DEFAULTS = {
     "name_boost": 0.08,              # ranking boost when an item names a known or watched entity
     "podcast_budget_weekday": 90,    # minutes of audio transcribed locally per weekday run
     "podcast_budget_weekend": 240,
+    "engine_feedback": "off",        # off | issue | pr: the dreaming run files engine problems on the engine's GitHub (RUN.md)
 }
 
 _cache = {}

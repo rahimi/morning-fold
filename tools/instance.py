@@ -10,7 +10,16 @@
       Validates the instance the tools would use (HOME): reader.md settings (known keys, types, time zone,
       weekdays), sources.json (names, ids, addresses, kinds, duplicates), theses.json (claim, probability,
       resolution date), the engine submodule and the model. Exit 1 when something must be fixed.
+
+  python3 engine/tools/instance.py leakcheck <file|->
+      The leak gate for anything sent to the public engine repository (an issue, a comment, a diff).
+      Looks for the instance's private terms in the text: reader.md's name, place, masthead, artifact_url
+      and watch list, the names and hostnames in sources.json, and the names and aliases of the graph's
+      people, companies, funds, regulators and sources. Whole words, any case. Graph and source names
+      under 3 characters, or already in the engine's own public files (docs, tools, templates, the fictional
+      example), are not checked. Prints the hits; exit 1 on any hit, 0 when clean.
 """
+import collections
 import datetime
 import json
 import os
@@ -143,6 +152,8 @@ def cmd_check(args):
         problems.append("reader.md: story_bar is points out of 12")
     if paths.cfg("min_stories") > paths.cfg("max_stories"):
         problems.append("reader.md: min_stories is larger than max_stories")
+    if paths.cfg("engine_feedback") not in ("off", "issue", "pr"):
+        problems.append("reader.md: engine_feedback must be off, issue or pr")
     if not paths.cfg("artifact_url"):
         warnings.append("reader.md: artifact_url is empty (set it after the first publish)")
     if len(paths.profile_text()) < 80:
@@ -221,8 +232,55 @@ def cmd_check(args):
         sys.exit(1)
 
 
+def cmd_leakcheck(args):
+    if len(args) != 1:
+        sys.exit(__doc__)
+    text = sys.stdin.read() if args[0] == "-" else open(args[0], encoding="utf-8").read()
+    import graph
+    public = []
+    for d, sub, files in os.walk(paths.ENGINE):
+        sub[:] = [x for x in sub if not x.startswith(".") and x != "model"]
+        public += [open(os.path.join(d, f), encoding="utf-8", errors="ignore").read()
+                   for f in files if f.endswith((".md", ".py", ".sh", ".json", ".jsonl", ".html", ".css"))]
+    public = " %s " % " ".join(re.findall(r"\w+", " ".join(public).lower()))
+    terms, skipped = {}, 0
+    r = paths.reader()
+    for k in ("name", "place", "masthead", "artifact_url"):
+        if r["own"].get(k) and r["own"][k] != paths.DEFAULTS[k]:
+            terms.setdefault(str(r["own"][k]).lower(), "reader.md " + k)
+    for w in paths.cfg("watch"):
+        terms.setdefault(w.lower(), "reader.md watch")
+    others = []
+    for s in paths.sources_file()["sources"]:
+        others += [(s.get("name"), "sources.json name")]
+        others += [(re.sub(r"^www\.", "", re.sub(r"^\w+://([^/:]+).*", r"\1", s[k])), "sources.json host")
+                   for k in ("url", "feed") if s.get(k)]
+    nodes, _ = graph.load()
+    for n in nodes.values():
+        if n["type"] in ("Person", "Company", "Fund", "Regulator", "Source"):
+            others += [(nm, "graph " + n["type"]) for nm in [n.get("name")] + n.get("aliases", [])]
+    word = lambda t: r"(?<!\w)" + re.escape(t) + r"(?!\w)"
+    for t, where in others:
+        t = (t or "").strip().lower()
+        if not t or t in terms:
+            continue
+        if len(t) < 3 or " %s " % " ".join(re.findall(r"\w+", t)) in public:
+            skipped += 1
+            continue
+        terms[t] = where
+    hits = collections.Counter()
+    if terms:
+        rx = re.compile("|".join(word(t) for t in sorted(terms, key=len, reverse=True)), re.I)
+        hits.update(m.group(0).lower() for m in rx.finditer(text))
+    res = {"terms": len(terms), "not_checked": skipped,
+           "hits": [{"term": t, "from": terms.get(t, ""), "count": c} for t, c in hits.most_common()], "ok": not hits}
+    print(json.dumps(res, ensure_ascii=False, indent=1))
+    if hits:
+        sys.exit(1)
+
+
 if __name__ == "__main__":
-    cmds = {"init": cmd_init, "check": cmd_check}
+    cmds = {"init": cmd_init, "check": cmd_check, "leakcheck": cmd_leakcheck}
     c = sys.argv[1] if len(sys.argv) > 1 else ""
     if c not in cmds:
         sys.exit(__doc__)
