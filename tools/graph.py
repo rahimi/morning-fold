@@ -1150,7 +1150,7 @@ WRITES = {"upsert", "merge", "delete", "reindex", "invalidate", "rule", "seed"}
 if __name__ == "__main__":
     cmds = {k[4:]: v for k, v in globals().items() if k.startswith("cmd_")}
     c = sys.argv[1] if len(sys.argv) > 1 else "help"
-    if c not in cmds:
+    if c not in cmds or {"-h", "--help"} & set(sys.argv):     # `seed --help` must not seed
         c = "help"
     if c in WRITES:
         import fcntl

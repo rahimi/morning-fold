@@ -184,6 +184,6 @@ def cmd_search(args):
 if __name__ == "__main__":
     cmds = {"index": cmd_index, "search": cmd_search}
     c = sys.argv[1] if len(sys.argv) > 1 else ""
-    if c not in cmds:
-        print(__doc__); sys.exit(1)
+    if c not in cmds or {"-h", "--help"} & set(sys.argv):     # `index --help` must not index
+        print(__doc__); sys.exit(0 if c in cmds or c in ("-h", "--help") else 1)
     cmds[c](sys.argv[2:])

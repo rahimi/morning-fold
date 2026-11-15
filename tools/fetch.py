@@ -418,8 +418,6 @@ def cmd_sources(args):
     no_baseline = "--no-baseline" in args
     if "--status" in args:
         statuses = set(args[args.index("--status") + 1].split(","))
-    if "--out" in args:
-        outdir = args[args.index("--out") + 1]
     if "--top" in args:
         top = int(args[args.index("--top") + 1])
     os.makedirs(outdir, exist_ok=True)
@@ -895,9 +893,13 @@ def cmd_podcast_find(args):
 
 
 if __name__ == "__main__":
-    cmds = {"sources": cmd_sources, "article": cmd_article, "transcribe": cmd_transcribe, "events": cmd_events,
-            "check": cmd_check, "rank": cmd_rank, "podcast-find": cmd_podcast_find}
-    c = sys.argv[1] if len(sys.argv) > 1 else ""
-    if c not in cmds:
+    cmds = {"sources": (cmd_sources, "--due --status --top --no-baseline"), "article": (cmd_article, ""),
+            "transcribe": (cmd_transcribe, "--budget-minutes"), "events": (cmd_events, ""), "check": (cmd_check, ""),
+            "rank": (cmd_rank, "--top"), "podcast-find": (cmd_podcast_find, "--limit")}
+    c, args = (sys.argv[1] if len(sys.argv) > 1 else ""), sys.argv[2:]
+    if c in ("", "-h", "--help") or {"-h", "--help"} & set(args):
         print(__doc__); sys.exit(0)
-    cmds[c](sys.argv[2:])
+    bad = [a for a in args if a.startswith("-") and a not in cmds.get(c, ("", ""))[1].split()]
+    if c not in cmds or bad:     # nothing runs on a typo: `sources` would read every source and rewrite first_seen
+        print(f"{__doc__}\nunknown {'flag ' + bad[0] if c in cmds else 'command ' + c}", file=sys.stderr); sys.exit(2)
+    cmds[c][0](args)
