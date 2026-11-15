@@ -526,6 +526,20 @@ def document_links(html, base, cap=60):
     return docs[:cap]
 
 
+# a date as calendars write it: 25.03.2027, 03/25/2027, 2027-03-25, 25 Mar(ch), 17Nov, March 25, 2027
+DATE = re.compile(r"\b\d{1,2}[./]\s?\d{1,2}[./]\s?(?:20)?\d\d\b|\b20\d\d-\d\d-\d\d\b|\b\d{1,2}\.?\s?(?:jan|feb|mär|mar|apr|mai|may|jun|jul|aug|sep|okt|oct|nov|dez|dec)[a-zä]*\b"
+                  r"|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s\d{1,2},?\s20\d\d\b", re.I)
+
+
+def json_text(o, key=""):
+    """A JSON response (a calendar API) as readable `key: value` lines, empty fields left out."""
+    if isinstance(o, dict):
+        return "\n".join(t for k, v in o.items() if (t := json_text(v, k)))
+    if isinstance(o, list):
+        return "\n\n".join(t for v in o if (t := json_text(v, key)))
+    return "" if o is None or o == "" else f"{key}: {o}"
+
+
 def cmd_article(args):
     import trafilatura
     paths.work_dir()
@@ -542,21 +556,35 @@ def cmd_article(args):
             if r.status_code >= 400:
                 return {"url": u, "ok": False, "error": f"HTTP {r.status_code}"}
             key = hashlib.sha1(u.encode()).hexdigest()
+            data = None
+            if r.text.lstrip()[:1] in ("{", "["):
+                try:
+                    data = json.loads(r.text)
+                except ValueError:            # not JSON after all: read as a page
+                    pass
             if r.content[:5] == b"%PDF-" or r.url.lower().endswith(".pdf"):
                 d = {"title": None, "text": pdf_text(r.content)}
                 figs = pdf_figures(r.content, key)
                 docs = []
+            elif data is not None:              # at most 200k characters: the text cache has no cap of its own
+                d, figs, docs = {"title": None, "text": json_text(data)[:200000]}, [], []
             else:
                 figs = html_figures(r.text, r.url, key)
                 docs = document_links(r.text, r.url)
                 j = trafilatura.extract(r.text, url=r.url, output_format="json", with_metadata=True,
                                         include_comments=False, favor_recall=True)
-                if not j:
+                d = json.loads(j) if j else {}
+                # a calendar (a short page that is mostly dates) whose date table or list the extract dropped: the page's
+                # whole text; newsroom and listing pages are longer and their dates sparser, so they keep the extract
+                full = trafilatura.html2txt(r.text) or ""
+                n = len(DATE.findall(full))
+                if n - len(DATE.findall(d.get("text") or "")) >= 5 and n * 150 >= len(full) and len(full) <= 6000:
+                    d["text"] = full
+                if not d:
                     if docs:                  # a listing page of reports: no article text, but the files are the point
                         return {"url": r.url, "asked": u, "ok": True, "browser": r.browser, "chars": 0,
                                 "documents": docs, "text": ""}
                     return {"url": u, "ok": False, "error": "no main text found"}
-                d = json.loads(j)
             text = d.get("text") or ""
             if not text.strip():
                 return {"url": u, "ok": False, "error": "no text found"}
