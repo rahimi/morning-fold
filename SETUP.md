@@ -53,7 +53,7 @@ cd <their-name>-fold
 git checkout -b main 2>/dev/null || git branch -M main   # runs push to main
 git submodule add <engine https url> engine
 T=$(git -C engine tag --list 'v*' --sort=-v:refname | grep -v -- -rc | head -1)
-[ -n "$T" ] && git -C engine checkout -q "$T"            # the latest release; with none yet, main's current commit
+if [ -n "$T" ]; then git -C engine checkout -q "$T"; fi   # the latest release; with none yet, main's current commit
 python3 engine/tools/instance.py init .
 ```
 
