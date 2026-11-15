@@ -52,6 +52,7 @@ gh repo create <their-name>-fold --private --clone      # ALWAYS --private
 cd <their-name>-fold
 git checkout -b main 2>/dev/null || git branch -M main   # runs push to main
 git submodule add <engine https url> engine
+git -C engine checkout "$(git -C engine tag --list 'v*' --sort=-v:refname | grep -v -- -rc | head -1)"   # the latest release
 python3 engine/tools/instance.py init .
 ```
 
@@ -89,6 +90,7 @@ Use `engine/examples/instance/` (a fictional reader) as the **format** reference
 | `max_item_age_days`, `recency_grace_days`, `recency_decay`, `name_boost` | ranking | 21, 2, 0.01, 0.08 |
 | `podcast_budget_weekday`, `podcast_budget_weekend` | minutes of audio transcribed locally per run | 90, 240 |
 | `engine_feedback` | engine problems a run finds: `off` tells the reader only; `issue` files them on the engine's GitHub; `pr` also opens a pull request for small fixes (needs `gh` logged in). Issues and pull requests are public: two gates check every text, but can't make it risk-free | off |
+| `engine_updates` | engine releases the dreaming run installs: `auto` the newest release (major ones too), `rc` also release candidates, `off` none (`instance.py update`, see "Later: engine updates") | auto |
 
 Values are `key: value` lines; lists and quoted strings are JSON (`issue_days: ["Mon", "Wed", "Fri"]`). `python3 engine/tools/instance.py check` validates all of it. The tools read `locale`, `timezone`, `quiet_window`, `profile`, `watch`, `regions`, the ranking keys, `podcast_budget_weekday` and the masthead/place/language (templates); the rest (story bar, issue size, schedule, `name`) is read by the editor from `graph.py brief`. Set `quiet_window` to the scheduled run's start time through `publish_by` plus 30 minutes (step 8).
 
@@ -163,14 +165,14 @@ Install the dependencies on that computer once (step 0), and run the line once b
 Every edition's back page has **Reply to the editor**. Whatever they type there (one line is enough) is stored with the page. The next run reads new replies first and acts on them: a preference becomes a lasting rule, a new interest goes into `reader.md`, a correction gets checked, a question gets answered in the next letter to the editor, and a thesis can be added, rephrased or dropped. Under each reply the page then shows one line saying what changed. Only the page's owner sees the box.
 
 ## Later: engine updates
-The engine improves independently. In the instance:
+The instance runs the engine's latest release tag, never `main`. The dreaming run keeps it current (`engine_updates`): `instance.py update` moves `engine/` to the newest release, self-tests it with the new tools and returns to the previous commit on a failure; the run commits the pointer and tells the reader what changes. By hand, from the instance root:
 ```bash
-git submodule update --remote engine
-python3 engine/tools/instance.py check
-python3 engine/tools/sync_reply.py --instance    # only if the instance overrides whole templates in site/
-git add engine && git commit -m "Engine update" && git push
+python3 engine/tools/instance.py update --check     # what would change: changelog and instance_changes
+python3 engine/tools/instance.py update             # needs_migration: make the instance_changes, then update --verify
+python3 engine/tools/sync_reply.py --instance       # only if the instance overrides whole templates in site/
+git add engine && git commit -m "Engine vA → vB" && git push
 ```
-Read the engine's commit log first (`git -C engine log --oneline HEAD@{1}..HEAD`); a change to `RUN.md` changes how every run behaves.
+An instance whose engine predates releases (its `instance.py` has no `update`) takes its first release by hand: `git -C engine fetch --tags && git -C engine checkout <latest vX.Y.Z>`, then `instance.py check` and the commit above. To undo an update: `git revert` that commit, then `git submodule update engine`.
 
 ## Overriding templates
 - Colours and fonts: `site/theme.css` (tokens only). The tools pour it into the template's `fold-theme` slot.
@@ -182,6 +184,6 @@ Engine changes (a tool fix, a better method in RUN.md, a template improvement) g
 - Nothing personal: no names, employers, sources lists, theses, issue text, graph data or quotes from any instance. Examples in docs and templates must be fictional (extend `examples/instance/`, which is fictional).
 - Before committing, grep the diff for the user's own names, employer, city and watched companies; it must find nothing.
 - Test the change against `examples/instance` (`MORNING_FOLD_HOME=examples/instance python3 tools/graph.py brief`, `check_issue.py`, `fetch.py rank`) and, privately, against the user's own instance.
-- Then open a pull request against the engine.
+- Then open a pull request against the engine. How changes become releases: [`RELEASING.md`](RELEASING.md).
 - Runs can do this themselves when `engine_feedback` is `issue` or `pr` (`FEEDBACK.md`). Issues and pull requests are public. Every text and diff first passes `instance.py leakcheck`, which refuses the instance's names, sources and graph entities, and a sub-agent that sees only `reader.md` and the text; together they lower the risk of a leak, they don't remove it.
 - Filed issues and pull requests appear under the reader's own GitHub account and git identity: the gates protect the content, not the author name.
