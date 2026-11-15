@@ -537,7 +537,7 @@ def cmd_timeline(args):
     i = resolve(nodes, " ".join(ref))
     if not i:
         return out({"error": "not found"})
-    fs = [edge_view(e, nodes) for e in edges.values() if i in (e["src"], e["dst"])
+    fs = [edge_view(e, nodes) for e in edges.values() if i in (e["src"], e["dst"]) and e["rel"] != "NOT_SAME_AS"
           and (live(e, asof) if asof else (hist or live(e)))]
     fs.sort(key=lambda f: f.get("valid_from") or f.get("observed") or "")
     out(fs)
@@ -595,6 +595,8 @@ def cmd_merge(args):
     k["sources"] = sorted(set(k.get("sources", [])) | set(d.get("sources", [])))
     if not k.get("text") and d.get("text"):
         k["text"] = d["text"]
+    for x in [x for x, e in edges.items() if e["rel"] == "NOT_SAME_AS" and {e["src"], e["dst"]} == {keep, drop}]:
+        edges.pop(x)                                   # found the same after all: the old verdict would become a self-edge
     for e in edges.values():
         if e["src"] == drop: e["src"] = keep
         if e["dst"] == drop: e["dst"] = keep
