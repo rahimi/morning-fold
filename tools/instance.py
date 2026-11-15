@@ -20,7 +20,8 @@
       and funds (also without a legal suffix such as AG, GmbH, plc), regulators, sources and events.
       Whole words, any case, across line breaks and hyphens, umlauts also as ae/oe/ue/ss. Terms other than
       reader.md's settings are not checked when under 3 characters or already in the engine's own public
-      files (docs, tools, templates, the fictional example). Prints the hits; exit 1 on any hit, 0 when clean.
+      files (docs, tools, templates, the fictional example). Git trailer lines (Name: Someone <mail>) are skipped.
+      Prints the hits; exit 1 on any hit, 0 when clean.
 """
 import collections
 import datetime
@@ -296,6 +297,7 @@ def cmd_leakcheck(args):
     first = collections.defaultdict(list)
     for tk in terms:
         first[tk[0]].append(tk)
+    text = re.sub(r"(?m)^[A-Za-z][A-Za-z-]*: .+ <[^>]+@[^>]+>$", "", text)    # git trailers (Co-Authored-By: ...)
     tt, hits = toks(text), collections.Counter()
     for i, w in enumerate(tt):
         hits.update(tk for tk in first.get(w, ()) if tt[i:i + len(tk)] == tk)
