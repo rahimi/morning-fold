@@ -968,11 +968,13 @@ def cmd_invalidate(args):
     fix = {k: args[args.index("--" + k) + 1] for k in ("src", "rel", "dst") if "--" + k in args}
     res = {}
     if fix:
-        keep = ("src", "rel", "dst", "valid_from", "valid_to", "confidence", "source", "quote", "note", "props")
+        keep = ("src", "rel", "dst", "valid_from", "valid_to", "observed", "verified", "confidence", "source", "quote", "note", "props")
         res["corrected"] = upsert({"edges": [{k: v for k, v in edges[eid].items() if k in keep} | fix]})
         if not set(res["corrected"]["created"] + res["corrected"]["updated"]) - {eid}:
             return out(res | {"error": "corrected fact refused or unchanged (see problems); old fact left valid"})
-        nodes, edges = load()
+        old, (nodes, edges) = edges[eid], load()
+        for nid in res["corrected"]["created"]:      # history stays history; corroborations and the quote check carry over
+            edges[nid].update({k: old[k] for k in ("backfill", "also", "grounded") if k in old})
     edges[eid]["invalid_at"] = now()
     edges[eid]["invalidated_by"] = by
     edges[eid]["updated"] = now()
