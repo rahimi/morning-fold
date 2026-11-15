@@ -34,7 +34,8 @@
       commit out again and exits 1 with the failures. When instance_changes are listed it stops after the
       checkout with needs_migration: make those changes in the instance, then run update --verify, which
       self-tests and on a failure returns to the previous commit (undo your changes then: git checkout -- <files>).
-      It never commits: on success, commit the engine pointer and the changes.
+      It never commits: on success, commit the engine pointer and the changes as "Engine <current> → <target>".
+      A release whose pointer commit the instance reverted (git revert --no-edit) is never taken again.
 """
 import collections
 import datetime
@@ -377,18 +378,20 @@ def cmd_update(args):
         prev = git("rev-parse", "HEAD@{1}")
         if not prev:
             report({"ok": False, "reason": "no previous engine checkout to verify against"}, 1)
-        self_test(prev, {"from": git("describe", "--tags", "--always", prev), "to": git("describe", "--tags", "--always")})
+        self_test(prev, {"current": git("describe", "--tags", "--always", prev), "target": git("describe", "--tags", "--always")})
+    channel = paths.cfg("engine_updates")
+    if channel != "off" and git("fetch", "-q", "--tags", "--force", "origin") is None:
+        report({"update": False, "reason": "could not fetch the engine's tags from origin"})
     head = git("rev-parse", "HEAD")
     current = max(git("tag", "--points-at", "HEAD").split(), key=lambda t: version(t) or (), default=None)
     if not version(current):
         current = git("describe", "--tags", "--abbrev=0", "--match", "v[0-9]*")
     res = {"current": current if version(current) else None, "target": None, "update": False}
-    channel = paths.cfg("engine_updates")
     if channel == "off":
         report({**res, "reason": "engine_updates is off"})
-    if git("fetch", "-q", "--tags", "--force", "origin") is None:
-        report({**res, "reason": "could not fetch the engine's tags from origin"})
-    tags = [t for t in git("tag", "--list", "v*").split() if version(t) and (channel == "rc" or version(t)[3])]
+    reverted = re.findall(r'(?m)^Revert "Engine \S+ → (v\S+)"', git("-C", paths.HOME, "log", "--format=%s") or "")
+    tags = [t for t in git("tag", "--list", "v*").split() if version(t) and (channel == "rc" or version(t)[3])
+            and t not in reverted]
     target = res["target"] = max(tags, key=version, default=None)
     cur = version(res["current"])
     if not target or (cur and version(target) <= cur) or git("rev-parse", target + "^{commit}") == head:

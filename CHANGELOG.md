@@ -13,8 +13,7 @@ What each engine release changes in a reader's paper, newest first. Instances ta
 - Memory: a fact can be corrected in one step with its history kept, a checked pair of different entities is no longer listed as a possible duplicate, and a fact can no longer point from an entity to itself.
 - The tools print their usage on `--help` and stop on an unknown command or flag instead of running.
 
-### Instance changes
-- Engines from before 0.2.0 have no `instance.py update`: move to this release once by hand, from the instance root: `git -C engine fetch --tags && git -C engine checkout v0.2.0 && python3 engine/tools/instance.py check`, then `git add engine && git commit -m "Engine v0.2.0"`. Later releases arrive with the Saturday run.
+Coming from 0.1.0, which has no `instance.py update`: take this release once by hand, as SETUP.md's "Later: engine updates" says. Later releases arrive with the Saturday run.
 
 ## 0.1.0
 

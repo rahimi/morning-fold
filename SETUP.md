@@ -52,7 +52,8 @@ gh repo create <their-name>-fold --private --clone      # ALWAYS --private
 cd <their-name>-fold
 git checkout -b main 2>/dev/null || git branch -M main   # runs push to main
 git submodule add <engine https url> engine
-git -C engine checkout "$(git -C engine tag --list 'v*' --sort=-v:refname | grep -v -- -rc | head -1)"   # the latest release
+T=$(git -C engine tag --list 'v*' --sort=-v:refname | grep -v -- -rc | head -1)
+[ -n "$T" ] && git -C engine checkout -q "$T"            # the latest release; with none yet, main's current commit
 python3 engine/tools/instance.py init .
 ```
 
@@ -170,9 +171,9 @@ The instance runs the engine's latest release tag, never `main`. The dreaming ru
 python3 engine/tools/instance.py update --check     # what would change: changelog and instance_changes
 python3 engine/tools/instance.py update             # needs_migration: make the instance_changes, then update --verify
 python3 engine/tools/sync_reply.py --instance       # only if the instance overrides whole templates in site/
-git add engine && git commit -m "Engine vA → vB" && git push
+git add engine && git commit -m "Engine <current> → <target>" && git push
 ```
-An instance whose engine predates releases (its `instance.py` has no `update`) takes its first release by hand: `git -C engine fetch --tags && git -C engine checkout <latest vX.Y.Z>`, then `instance.py check` and the commit above. To undo an update: `git revert` that commit, then `git submodule update engine`.
+An instance whose engine predates releases (its `instance.py` has no `update`) takes its first release by hand: `git -C engine fetch --tags && git -C engine checkout <latest vX.Y.Z>`, then `instance.py check` and the commit above. To undo an update: `git revert --no-edit` that commit, then `git submodule update engine`; `update` then skips that release and takes the next newer one.
 
 ## Overriding templates
 - Colours and fonts: `site/theme.css` (tokens only). The tools pour it into the template's `fold-theme` slot.
