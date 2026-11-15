@@ -2,6 +2,12 @@
 
 What each engine release changes in a reader's paper, newest first. Instances take the latest release tag (`reader.md`'s `engine_updates`); the dreaming run installs it and tells the reader the first section below. "Instance changes" lists what an instance must change by hand or by the run before the release works; most releases have none.
 
+## 0.2.1
+
+### What changes in your paper
+- Financial calendars keep their dates: a calendar page whose date table or list the text extraction used to drop is now read in full, and a calendar published as a data feed (JSON) is read as text instead of failing. Ordinary articles read as before.
+- The Saturday run no longer re-checks the same people's roles every week: a role confirmed in the last six months is left off the list of possibly outdated roles.
+
 ## 0.2.0
 
 ### What changes in your paper
