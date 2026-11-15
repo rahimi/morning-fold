@@ -232,6 +232,12 @@ def podcast_items(src, since=None, cap=10):
     return recent[:cap] if cap else recent
 
 
+def episode_key(source, published, title):
+    """An episode by show, date and title: the URL in the feed may differ from the one its Article was stored under
+    (page link, audio URL, a tracking redirect), and an Article's name may lead with the show ("Show: title")."""
+    return "|".join((str(source), str(published), re.sub(r"\W+", "", (title or "").lower())))
+
+
 def page_links(html, base):
     """Headline-like links from a listing page: same site, reasonable anchor text, article-ish path."""
     host = urlparse(base).netloc.removeprefix("www.")
@@ -279,8 +285,10 @@ def fetch_source(src, known):
             items = podcast_items(src)
             for i in items:
                 i["source"] = src["id"]
-            # an episode is known under any of its names: identity, page link or audio URL (older Articles may use another)
-            new = [i for i in items if i.get("url") and not ({i["url"], i.get("link"), i.get("audio")} - {None}) & known]
+            # an episode is known under any of its names: identity, page link, audio URL (older Articles may use another),
+            # or show, date and title
+            new = [i for i in items if i.get("url") and not ({i["url"], i.get("link"), i.get("audio"),
+                                                              episode_key(src["id"], i["published"], i["title"])} - {None}) & known]
             res.update(ok=True, mode="podcast", items_total=len(items), new_items=new)
         except Exception as e:
             res["error"] = explain(e)
@@ -423,6 +431,8 @@ def cmd_sources(args):
     os.makedirs(outdir, exist_ok=True)
     nodes, edges = graph.load()
     known = {n.get("props", {}).get("url") for n in nodes.values() if n["type"] == "Article"}
+    known |= {episode_key(n["props"].get("source"), n["props"].get("published"), t) for n in nodes.values()
+              if n["type"] == "Article" and n.get("props", {}).get("kind") == "podcast" for t in (n["name"], n["name"].split(": ", 1)[-1])}
     today = datetime.date.today()
     srcs = [n for n in nodes.values() if n["type"] == "Source"
             and n.get("props", {}).get("status", "seed") in statuses
