@@ -67,6 +67,8 @@ You need: a Claude plan with Claude Code cloud sessions (Pro, Max, Team or Enter
 | `RUN.md` | the run method every scheduled run follows (issue, week-ahead, dreaming) |
 | `BACKFILL.md` | one-off job that gives a new paper its history |
 | `FEEDBACK.md` | how runs file engine problems on GitHub (opt-in, `engine_feedback`) |
+| `CHANGELOG.md` | what each release changes in a reader's paper; instances take the latest release tag (`engine_updates`) |
+| `RELEASING.md` | how the maintainer cuts a release |
 | `tools/` | `graph.py` (memory), `fetch.py` (reading, ranking, transcripts), `passages.py` (archive search), `backfill.py`, `check_issue.py`, `site.py`, `sync_reply.py`, `instance.py`, `get_model.py`, `paths.py` |
 | `site/` | default issue and week-ahead templates, reply box |
 | `examples/instance/` | a complete fictional instance (insurance and AI reader) |

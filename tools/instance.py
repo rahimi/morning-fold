@@ -22,12 +22,27 @@
       reader.md's settings are not checked when under 3 characters or already in the engine's own public
       files (docs, tools, templates, the fictional example). Claude's Co-Authored-By trailer line is skipped.
       Prints the hits; exit 1 on any hit, 0 when clean.
+
+  python3 engine/tools/instance.py update [--check | --verify]
+      Moves the engine checkout (engine/) to the newest release tag reader.md's engine_updates allows: auto, the
+      newest final release vX.Y.Z (majors too); rc, also candidates vX.Y.Z-rcN; off, never. Fetches the tags from
+      the engine's origin. Only moves forward along the release line: a checkout that is not an ancestor of that
+      tag (a development commit) stays where it is. Prints JSON: current and target version, update (true/false),
+      changelog (the CHANGELOG.md sections in between) and instance_changes (their "Instance changes" steps).
+      --check: only reports. Otherwise checks the target out and self-tests it with the new tools (instance.py
+      check, graph.py brief, fetch.py --help, site.py template issue): on a failure it checks the previous
+      commit out again and exits 1 with the failures. When instance_changes are listed it stops after the
+      checkout with needs_migration: make those changes in the instance, then run update --verify, which
+      self-tests and on a failure returns to the previous commit (undo your changes then: git checkout -- <files>).
+      It never commits: on success, commit the engine pointer and the changes as "Engine <current> → <target>".
+      A release whose pointer commit the instance reverted (git revert --no-edit) is never taken again.
 """
 import collections
 import datetime
 import json
 import os
 import re
+import subprocess
 import sys
 import unicodedata
 
@@ -159,6 +174,8 @@ def cmd_check(args):
         problems.append("reader.md: min_stories is larger than max_stories")
     if paths.cfg("engine_feedback") not in ("off", "issue", "pr"):
         problems.append("reader.md: engine_feedback must be off, issue or pr")
+    if paths.cfg("engine_updates") not in ("auto", "rc", "off"):
+        problems.append("reader.md: engine_updates must be auto, rc or off")
     if not paths.cfg("artifact_url"):
         warnings.append("reader.md: artifact_url is empty (set it after the first publish)")
     if len(paths.profile_text()) < 80:
@@ -322,12 +339,85 @@ def cmd_leakcheck(args):
         sys.exit(1)
 
 
+TAG = re.compile(r"v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?")
+
+
+def version(tag):
+    """Sort key of a release tag vX.Y.Z or vX.Y.Z-rcN (a final release after its candidates); None for other tags."""
+    m = TAG.fullmatch(tag or "")
+    return m and (*map(int, m.group(1, 2, 3)), not m.group(4), int(m.group(4) or 0))
+
+
+def git(*a):
+    r = subprocess.run(["git", "-C", paths.ENGINE, *a], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def report(res, code=0):
+    print(json.dumps(res, ensure_ascii=False, indent=1))
+    sys.exit(code)
+
+
+def self_test(prev, res):
+    failures = []
+    for c in (["instance.py", "check"], ["graph.py", "brief"], ["fetch.py", "--help"], ["site.py", "template", "issue"]):
+        r = subprocess.run([sys.executable, os.path.join(paths.ENGINE, "tools", c[0]), *c[1:]], cwd=paths.HOME,
+                           capture_output=True, text=True)
+        if r.returncode:
+            failures.append({"run": " ".join(c), "exit": r.returncode, "output": (r.stdout + r.stderr)[-1500:]})
+    if failures:
+        git("checkout", "-q", "--detach", prev)
+        report({**res, "ok": False, "failures": failures, "rolled_back_to": git("describe", "--tags", "--always")}, 1)
+    report({**res, "ok": True})
+
+
+def cmd_update(args):
+    if git("rev-parse", "HEAD") is None:
+        report({"update": False, "reason": f"{paths.ENGINE} is not a git checkout (an unpacked archive?)"})
+    if "--verify" in args:
+        prev = git("rev-parse", "HEAD@{1}")
+        if not prev:
+            report({"ok": False, "reason": "no previous engine checkout to verify against"}, 1)
+        self_test(prev, {"current": git("describe", "--tags", "--always", prev), "target": git("describe", "--tags", "--always")})
+    channel = paths.cfg("engine_updates")
+    if channel != "off" and git("fetch", "-q", "--tags", "--force", "origin") is None:
+        report({"update": False, "reason": "could not fetch the engine's tags from origin"})
+    head = git("rev-parse", "HEAD")
+    current = max(git("tag", "--points-at", "HEAD").split(), key=lambda t: version(t) or (), default=None)
+    if not version(current):
+        current = git("describe", "--tags", "--abbrev=0", "--match", "v[0-9]*")
+    res = {"current": current if version(current) else None, "target": None, "update": False}
+    if channel == "off":
+        report({**res, "reason": "engine_updates is off"})
+    reverted = re.findall(r'(?m)^Revert "Engine \S+ → (v\S+)"', git("-C", paths.HOME, "log", "--format=%s") or "")
+    tags = [t for t in git("tag", "--list", "v*").split() if version(t) and (channel == "rc" or version(t)[3])
+            and t not in reverted]
+    target = res["target"] = max(tags, key=version, default=None)
+    cur = version(res["current"])
+    if not target or (cur and version(target) <= cur) or git("rev-parse", target + "^{commit}") == head:
+        report({**res, "reason": "up to date"})
+    if git("merge-base", "--is-ancestor", "HEAD", target) is None:
+        report({**res, "reason": "the engine is at a commit off the release line (a development commit?); nothing changed"})
+    secs = [s.strip() for s in re.split(r"(?m)^(?=## )", git("show", target + ":CHANGELOG.md") or "")
+            if (m := re.match(r"## v?(\d+)\.(\d+)\.(\d+)", s)) and (base := tuple(map(int, m.groups()))) <= version(target)[:3]
+            and (not cur or (*base, True) > cur[:4])]
+    steps = [m.group(1).strip() for s in secs if (m := re.search(r"(?ms)^### Instance changes\s*$(.*?)(?=^##|\Z)", s))]
+    res.update(update=True, changelog="\n\n".join(secs), instance_changes=steps)
+    if "--check" in args:
+        report(res)
+    if git("checkout", "-q", "--detach", target) is None:
+        report({**res, "ok": False, "reason": f"could not check out {target} (local changes in the engine?)"}, 1)
+    if steps:
+        report({**res, "needs_migration": True, "next": "make the instance_changes, then: instance.py update --verify"})
+    self_test(head, res)
+
+
 if __name__ == "__main__":
-    cmds = {"init": cmd_init, "check": cmd_check, "leakcheck": cmd_leakcheck}
+    cmds = {"init": cmd_init, "check": cmd_check, "leakcheck": cmd_leakcheck, "update": cmd_update}
     c, args = (sys.argv[1] if len(sys.argv) > 1 else ""), sys.argv[2:]
     if c in ("", "-h", "--help") or {"-h", "--help"} & set(args):
         print(__doc__); sys.exit(0)
-    bad = [a for a in args if a.startswith("-") and a != "-"]
+    bad = [a for a in args if a.startswith("-") and a != "-" and not (c == "update" and a in ("--check", "--verify"))]
     if c not in cmds or bad:     # nothing runs on a typo: `init --help` would lay out an instance in ./--help
         print(f"{__doc__}\nunknown {'flag ' + bad[0] if c in cmds else 'command ' + c}", file=sys.stderr); sys.exit(2)
     cmds[c](args)

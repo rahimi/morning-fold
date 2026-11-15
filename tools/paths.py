@@ -91,6 +91,7 @@ DEFAULTS = {
     "podcast_budget_weekday": 90,    # minutes of audio transcribed locally per weekday run
     "podcast_budget_weekend": 240,
     "engine_feedback": "off",        # off | issue | pr: the dreaming run files engine problems on the engine's GitHub (FEEDBACK.md)
+    "engine_updates": "auto",        # auto | rc | off: the dreaming run moves the engine to the newest release (rc: also candidates)
 }
 
 _cache = {}

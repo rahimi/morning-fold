@@ -6,7 +6,7 @@ How a dreaming run files engine problems (a tool bug, a gap in `RUN.md`) on the 
 Only if `gh auth status` succeeds and the engine URL in `.gitmodules` is on github.com; otherwise tell the reader in your message, as `RUN.md` says. File the week's `engine_issues` from the run logs and your own, skipping entries that already have a URL; at most three new issues per run.
 
 ## Write, then gate
-- Write each for strangers: what the engine does, what it should do, the steps on `examples/instance` with its fictional names. Nothing from this instance. Put the title and the body in two files in the work dir.
+- Write each for strangers: what the engine does, what it should do, the steps on `examples/instance` with its fictional names. Name the engine version: `instance.py update --check`'s `current`, or `git -C engine describe --tags --always`. Nothing from this instance. Put the title and the body in two files in the work dir.
 - Two gates, both must pass, on every text that leaves (title, body, comment; for a pull request also the diff, commit message and branch name):
   1. `python3 engine/tools/instance.py leakcheck <file>`, with the instance's own `engine/` and no `MORNING_FOLD_HOME` set.
   2. A fresh sub-agent that reads only `reader.md` and the outgoing text answers: could this text identify the reader, their employer, their sources or anything the paper printed? yes or no, and why.
