@@ -314,7 +314,10 @@ def cmd_upsert(args):
     """Read {"nodes":[...], "edges":[...]} from a file or stdin. Nodes merge by id (or by type+name);
     props/aliases/sources merge, text is replaced if given. Edges need src, rel, dst; same
     src+rel+dst+valid_from updates the existing edge. Returns ids plus possible duplicates."""
-    data = json.load(open(args[0], encoding="utf-8") if args else sys.stdin)
+    out(upsert(json.load(open(args[0], encoding="utf-8") if args else sys.stdin)))
+
+
+def upsert(data):
     nodes, edges = load()
     ts = now()
     created, updated, dupes, problems = [], [], [], []
@@ -419,8 +422,8 @@ def cmd_upsert(args):
                 if ns > 0.85 and sims[k] > 0.88:
                     dupes.append({"new": nid, "maybe_same_as": other, "name_similarity": round(ns, 2),
                                   "meaning_similarity": round(float(sims[k]), 3)})
-    out({"created": created, "updated": updated, "embedded": embedded,
-         "possible_duplicates": dupes, "problems": problems})
+    return {"created": created, "updated": updated, "embedded": embedded,
+            "possible_duplicates": dupes, "problems": problems}
 
 
 def cmd_search(args):
@@ -950,18 +953,28 @@ def cmd_audit(args):
 
 
 def cmd_invalidate(args):
-    """invalidate <edge_id> --by <article id | reason>  a fact stopped being true or was superseded: it stays in history."""
+    """invalidate <edge_id> --by <article id | reason> [--rel REL] [--src S] [--dst D]  a fact stopped being true or was
+    superseded: it stays in history. With --rel/--src/--dst the corrected fact is written in the same step with the old
+    one's source, quote, confidence, note and dates; if the corrected fact is refused, the old one stays valid."""
     if "--by" not in args or len(args) < 3:
-        return out({"error": "usage: invalidate <edge_id> --by <article id or reason>"})
+        return out({"error": "usage: invalidate <edge_id> --by <article id or reason> [--rel REL] [--src S] [--dst D]"})
     eid, by = args[0], args[args.index("--by") + 1]
     nodes, edges = load()
     if eid not in edges:
         return out({"error": f"no edge {eid}"})
+    fix = {k: args[args.index("--" + k) + 1] for k in ("src", "rel", "dst") if "--" + k in args}
+    res = {}
+    if fix:
+        keep = ("src", "rel", "dst", "valid_from", "valid_to", "confidence", "source", "quote", "note", "props")
+        res["corrected"] = upsert({"edges": [{k: v for k, v in edges[eid].items() if k in keep} | fix]})
+        if not set(res["corrected"]["created"] + res["corrected"]["updated"]) - {eid}:
+            return out(res | {"error": "corrected fact refused or unchanged (see problems); old fact left valid"})
+        nodes, edges = load()
     edges[eid]["invalid_at"] = now()
     edges[eid]["invalidated_by"] = by
     edges[eid]["updated"] = now()
     save(nodes, edges)
-    out({"invalidated": edge_view(edges[eid], nodes)})
+    out({"invalidated": edge_view(edges[eid], nodes)} | res)
 
 
 def cmd_rule(args):
@@ -1120,7 +1133,7 @@ def cmd_help(args):
         "neighbors <id|name> [--depth N] [--rel REL]": "surrounding subgraph",
         "path <a> <b>": "shortest connection between two entities",
         "timeline <id|name> [--asof YYYY-MM-DD] [--history]": "facts in date order; --asof = what the paper knew that day",
-        "invalidate <edge_id> --by <article|reason>": "a fact stopped being true or was superseded (kept in history; use delete only for extraction errors)",
+        "invalidate <edge_id> --by <article|reason> [--rel REL] [--src S] [--dst D]": "a fact stopped being true or was superseded (kept in history; use delete only for extraction errors); with --rel/--src/--dst also writes the corrected fact with the same source, quote and confidence",
         "rule <name> helpful|harmful [--note]": "count a learned rule's effect in this run",
         "score": "track record: Brier scores of resolved theses; early-signal log (hit rate, lead days, open signals to check)",
         "list --type T [--where k=v]": "all nodes of a type",
