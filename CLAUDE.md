@@ -1,6 +1,6 @@
 # The Morning Fold engine
 
-This repository is the **engine** of The Morning Fold: a personal newspaper Claude writes overnight for one reader. It holds the tools (`tools/`), the run method (`RUN.md`, `BACKFILL.md`), the default edition templates (`site/`), setup instructions (`SETUP.md`) and a fictional example instance (`examples/instance/`). It is public and holds nothing about any real reader.
+This repository is the **engine** of The Morning Fold: a personal newspaper Claude writes overnight for one reader. It holds the tools (`tools/`), the run method (`RUN.md`, `BACKFILL.md`, `FEEDBACK.md`), the default edition templates (`site/`), setup instructions (`SETUP.md`) and a fictional example instance (`examples/instance/`). It is public and holds nothing about any real reader.
 
 Each reader's paper lives in their own **private instance** repository, with this engine as the submodule `engine/`.
 

@@ -183,4 +183,5 @@ Engine changes (a tool fix, a better method in RUN.md, a template improvement) g
 - Before committing, grep the diff for the user's own names, employer, city and watched companies; it must find nothing.
 - Test the change against `examples/instance` (`MORNING_FOLD_HOME=examples/instance python3 tools/graph.py brief`, `check_issue.py`, `fetch.py rank`) and, privately, against the user's own instance.
 - Then open a pull request against the engine.
-- Runs can do this themselves when `engine_feedback` is `issue` or `pr` (RUN.md, dreaming step 6). Issues and pull requests are public. Every text and diff first passes `instance.py leakcheck`, which refuses the instance's names, sources and graph entities, and a sub-agent that sees only `reader.md` and the text; together they lower the risk of a leak, they don't remove it.
+- Runs can do this themselves when `engine_feedback` is `issue` or `pr` (`FEEDBACK.md`). Issues and pull requests are public. Every text and diff first passes `instance.py leakcheck`, which refuses the instance's names, sources and graph entities, and a sub-agent that sees only `reader.md` and the text; together they lower the risk of a leak, they don't remove it.
+- Filed issues and pull requests appear under the reader's own GitHub account and git identity: the gates protect the content, not the author name.
