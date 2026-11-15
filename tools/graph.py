@@ -352,9 +352,10 @@ def cmd_upsert(args):
         if not src or not dst or not e.get("rel"):
             problems.append({"edge": e, "error": "unknown src/dst or missing rel (create the nodes first)"}); continue
         rel = re.sub(r"[^A-Z0-9_]", "_", e["rel"].upper())
-        if src == dst and rel != "SAID":
-            problems.append({"edge": {k: e.get(k) for k in ("src", "rel", "dst")}, "warning":
-                             "edge from a node to itself; a statement about oneself is SAID, a plan is SAID"})
+        if src == dst:
+            problems.append({"edge": {k: e.get(k) for k in ("src", "rel", "dst")}, "error":
+                             "edge from a node to itself, not written: a statement or plan is SAID by the person who said "
+                             "it (or the podcast's Source) to what it is about, an organisation or a Topic"}); continue
         if rel not in ALL_RELS:
             problems.append({"edge": {k: e.get(k) for k in ("src", "rel", "dst")}, "warning":
                              f"relation {rel} is not in the vocabulary (graph.py help: relations); written anyway, prefer a listed one"})
