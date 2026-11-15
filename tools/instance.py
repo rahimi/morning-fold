@@ -14,13 +14,13 @@
   python3 engine/tools/instance.py leakcheck <file|->
       The leak gate for anything sent to the public engine repository (an issue, a comment, a diff).
       Run it from the instance root with the instance's own engine/; it refuses (exit 2) a home without
-      reader.md or inside the engine. Looks for the instance's private terms in the text: reader.md's name,
-      place, masthead, artifact_url and watch list, and the capitalised words of its profile; the names and
+      reader.md, inside an engine checkout, or with an example's reader.md. Looks for the instance's private terms in the text: reader.md's name,
+      place, masthead, artifact_url and watch list, and the capitalised words of its profile and prose; the names and
       hostnames in sources.json; the names and aliases of the graph's people (also the surname), companies
-      and funds (also without a legal suffix such as AG, GmbH, plc), regulators, sources and events.
-      Whole words, any case, across line breaks and hyphens, umlauts also as ae/oe/ue/ss. Terms other than
+      and funds (also without a legal suffix such as AG, GmbH, plc), regulators, sources and events, and their ids.
+      Whole words, any case, across line breaks and hyphens, umlauts also as ae/oe/ue/ss or dropped. Terms other than
       reader.md's settings are not checked when under 3 characters or already in the engine's own public
-      files (docs, tools, templates, the fictional example). Co-Authored-By trailer lines are skipped.
+      files (docs, tools, templates, the fictional example). Claude's Co-Authored-By trailer line is skipped.
       Prints the hits; exit 1 on any hit, 0 when clean.
 """
 import collections
@@ -29,6 +29,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import paths  # noqa: E402
@@ -236,16 +237,21 @@ def cmd_check(args):
         sys.exit(1)
 
 
-SUFFIX = re.compile(r"(?:[\s,]+(?:ag|se|gmbh|kgaa|kg|group|gruppe|holding|plc|inc\.?|n\.v\.|s\.a\.|s\.p\.a\.|ltd\.?|&\s*co\.?))+$")
+SUFFIX = re.compile(r"(?:[\s,]+(?:ag|se|gmbh|kgaa|kg|group|gruppe|holding|plc|inc\.?|n\.v\.|s\.a\.|s\.p\.a\.|ltd\.?|&\s*co\.?|konzern))+$")
 UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
 
 
 def cmd_leakcheck(args):
     home = os.path.realpath(paths.HOME)
     engine = os.path.realpath(paths.ENGINE)
-    if not paths.reader()["path"] or home == engine or home.startswith(engine + os.sep):
+    rd = paths.reader()["path"]
+    examples = [os.path.join(engine, "examples", d, "reader.md") for d in os.listdir(os.path.join(engine, "examples"))] \
+        if os.path.isdir(os.path.join(engine, "examples")) else []
+    if not rd or home == engine or home.startswith(engine + os.sep) \
+            or os.path.exists(os.path.join(home, "tools", "paths.py")) \
+            or any(os.path.isfile(e) and open(e, "rb").read() == open(rd, "rb").read() for e in examples):
         print(json.dumps({"home": home, "ok": False, "problem": "not an instance: run from the instance root, "
-                          "without MORNING_FOLD_HOME pointing elsewhere"}, ensure_ascii=False, indent=1))
+                          "without MORNING_FOLD_HOME pointing elsewhere (not an engine checkout or its example)"}, ensure_ascii=False, indent=1))
         sys.exit(2)
     if len(args) != 1:
         print(__doc__, file=sys.stderr)
@@ -263,6 +269,9 @@ def cmd_leakcheck(args):
     terms, skipped = {}, set()
 
     def add(t, where, always=False):
+        bare = unicodedata.normalize("NFKD", t or "").encode("ascii", "ignore").decode()
+        if bare.strip() and toks(bare) != toks(t):
+            add(bare, where, always)     # the same name with its accents dropped ("Muller" for "Müller")
         tk = toks(t or "")
         if not tk or tk in terms or tk in skipped:
             return
@@ -277,9 +286,12 @@ def cmd_leakcheck(args):
             add(str(r["own"][k]), "reader.md " + k, True)
     for w in paths.cfg("watch"):
         add(w, "reader.md watch", True)
-    for run in re.findall(r"\w*[A-ZÄÖÜ]\w*(?:[ \-]+\w*[A-ZÄÖÜ]\w*)*", paths.profile_text()):
+    prose = paths.profile_text() + "\n" + r["text"]
+    plain = set(re.findall(r"(?<![\w-])[a-zäöüß]\w*", prose))     # words the prose also writes in lower case are common words
+    for run in re.findall(r"\w*[A-ZÄÖÜ]\w*(?:[ \-]+\w*[A-ZÄÖÜ]\w*)*", prose):
         for t in [run] + run.split():
-            add(t, "reader.md profile")
+            if t.lower() not in plain:
+                add(t, "reader.md prose")
     for s in paths.sources_file()["sources"]:
         add(s.get("name"), "sources.json name")
         for k in ("url", "feed"):
@@ -288,6 +300,7 @@ def cmd_leakcheck(args):
     nodes, _ = graph.load()
     for n in nodes.values():
         if n["type"] in ("Person", "Company", "Fund", "Regulator", "Source", "Event"):
+            add(n["id"].split(":", 1)[-1].replace("-", " "), "graph id")    # ids are slugs: umlauts dropped, names shortened
             for nm in [n.get("name") or ""] + n.get("aliases", []):
                 add(nm, "graph " + n["type"])
                 short = SUFFIX.sub("", nm.lower()) if n["type"] in ("Company", "Fund") else \
@@ -297,7 +310,7 @@ def cmd_leakcheck(args):
     first = collections.defaultdict(list)
     for tk in terms:
         first[tk[0]].append(tk)
-    text = re.sub(r"(?mi)^co-authored-by: .+ <[^>]+@[^>]+>$", "", text)    # the commit's co-author trailer
+    text = re.sub(r"(?mi)^co-authored-by: claude[^<\n]*<noreply@anthropic\.com>\r?$", "", text)    # Claude's co-author trailer
     tt, hits = toks(text), collections.Counter()
     for i, w in enumerate(tt):
         hits.update(tk for tk in first.get(w, ()) if tt[i:i + len(tk)] == tk)
