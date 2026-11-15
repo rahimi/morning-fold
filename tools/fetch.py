@@ -478,24 +478,26 @@ def cmd_sources(args):
             if baseline and dropped:
                 res["baseline"] = True
     save_first_seen(fs, today)
+    outage = bool(results) and not any(r["ok"] for r in results)     # nothing read at all: our network, not the sources
     import fcntl
-    with open(os.path.join(graph.GDIR, ".lock"), "w") as lk:       # graph.py's write lock: reporters may be writing
-        fcntl.flock(lk, fcntl.LOCK_EX)
-        nodes, edges = graph.load()
-        for r in (r for r in results if r["id"] in nodes):         # each Source's counters: failures = failed days in a row,
-            p = nodes[r["id"]].setdefault("props", {})               # not counting this environment's own faults
-            if r["ok"]:
-                p.update(last_read=str(today), failures=0); p.pop("failed_on", None)
-            elif p.get("failed_on") != str(today) and not (r.get("error") or "").startswith(("blocked by this environment", "ModuleNotFoundError")):
-                p.update(failures=(p.get("failures") or 0) + 1, failed_on=str(today))
-        graph.save(nodes, edges)
+    if results:                # sources were read, so graph/ exists; graph.py's write lock: reporters may be writing
+        with open(os.path.join(graph.GDIR, ".lock"), "w") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            nodes, edges = graph.load()
+            for r in (r for r in results if r["id"] in nodes):     # each Source's counters: failures = failed days in a row,
+                p = nodes[r["id"]].setdefault("props", {})           # not counting this environment's own faults
+                if r["ok"]:
+                    p.update(last_read=str(today), failures=0); p.pop("failed_on", None)
+                elif not outage and p.get("failed_on") != str(today) and not (r.get("error") or "").startswith(("blocked by this environment", "ModuleNotFoundError")):
+                    p.update(failures=(p.get("failures") or 0) + 1, failed_on=str(today))
+            graph.save(nodes, edges)
     ranked = rank(items, nodes, edges)
     json.dump(ranked, open(os.path.join(outdir, "items.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     status = [{"id": r["id"], "ok": r["ok"], "mode": r.get("mode"), "browser": r.get("browser"),
                "new": len(r.get("new_items", [])), "error": r.get("error"),
                "undated_backlog_dropped": r.get("undated_backlog_dropped"), "baseline": r.get("baseline")} for r in results]
     status.sort(key=lambda s: (not s["ok"], -s["new"]))
-    out({"sources_read": len(results), "ok": sum(s["ok"] for s in status),
+    out({"sources_read": len(results), "ok": sum(s["ok"] for s in status), **({"outage": True} if outage else {}),
          "failed": [s for s in status if not s["ok"]],
          "new_items": len(items), "after_folding_copies": len(ranked),
          "upcoming": [{k: i.get(k) for k in ("published", "title", "url", "source")} for i in sorted(upcoming, key=lambda i: i["published"])][:40],
