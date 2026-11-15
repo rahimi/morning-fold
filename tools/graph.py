@@ -35,7 +35,7 @@ RELS = {
     # policy, regulation and public projects: actor -> Policy (an act, rule, decision or consultation) or -> Project
     "policy": ["PROPOSED", "CONSULTED_ON", "APPROVED", "DECIDED", "LAUNCHED_PROJECT", "APPLIES_TO"],
     "paper": ["FROM", "CITES", "ABOUT", "CONCERNS", "REPORTS_ON", "CONTAINS", "PREVIEWS", "MENTIONS", "PREFERS",
-              "EVIDENCE_FOR", "EVIDENCE_AGAINST", "SUPPORTS"],
+              "NOT_SAME_AS", "EVIDENCE_FOR", "EVIDENCE_AGAINST", "SUPPORTS"],
 }
 ALL_RELS = {r for v in RELS.values() for r in v}
 
@@ -506,7 +506,7 @@ def cmd_path(args):
     a, b = resolve(nodes, args[0]), resolve(nodes, args[1])
     if not a or not b:
         return out({"error": "not found"})
-    meta = {"ABOUT", "EVIDENCE_FOR", "EVIDENCE_AGAINST", "PREFERS", "CITES", "FROM", "MENTIONS"}
+    meta = {"ABOUT", "EVIDENCE_FOR", "EVIDENCE_AGAINST", "PREFERS", "CITES", "FROM", "MENTIONS", "NOT_SAME_AS"}
     adj, prev, q = adjacency(edges), {a: None}, collections.deque([a])
     while q:
         x = q.popleft()
@@ -659,7 +659,7 @@ def cmd_brief(args):
     recent = [edge_view(e, nodes) for e in edges.values()
               if live(e) and (e.get("created") or "") >= since
               and (not e.get("backfill") or published(e, nodes) >= since)
-              and e["rel"] not in ("FROM", "CITES", "CONTAINS", "ABOUT")]
+              and e["rel"] not in ("FROM", "CITES", "CONTAINS", "ABOUT", "NOT_SAME_AS")]
     rules = sorted(rules, key=lambda r: -(r.get("helpful", 0) - r.get("harmful", 0)))
     recent.sort(key=lambda f: f.get("valid_from") or f.get("observed") or "", reverse=True)
     deg = collections.Counter()
@@ -701,7 +701,7 @@ def cmd_brief(args):
 
 
 # ---------------------------------------------------------------- story work: dossier and patterns
-PAPER_RELS = {"FROM", "CITES", "CONTAINS", "ABOUT", "MENTIONS", "REPORTS_ON", "PREVIEWS", "CONCERNS", "PREFERS"}
+PAPER_RELS = {"FROM", "CITES", "CONTAINS", "ABOUT", "MENTIONS", "REPORTS_ON", "PREVIEWS", "CONCERNS", "PREFERS", "NOT_SAME_AS"}
 ENTITY_TYPES = ("Company", "Fund", "Person", "Topic", "Event", "Deal", "Regulator", "Policy", "Project")
 
 
@@ -905,15 +905,18 @@ def cmd_audit(args):
     weak = [edge_view(e, nodes) for e in edges.values()
             if e["rel"] not in ("FROM", "CITES", "CONTAINS", "ABOUT", "PREFERS")
             and not e.get("verified") and (float(e.get("confidence") or 1) < 0.8 or e.get("grounded") == "unchecked")]
-    # duplicate candidates among entities (name similarity)
+    # duplicate candidates among entities (name similarity), most similar first; a pair joined by any fact (a group
+    # and its subsidiary) or by NOT_SAME_AS (checked in an earlier pass: two entities) is known to be two
     ents = [n for n in nodes.values() if n["type"] in ACTOR_TYPES]
+    linked = {frozenset((e["src"], e["dst"])) for e in edges.values()}
     dup = []
     for i, a in enumerate(ents):
         for b in ents[i + 1:]:
-            if a["type"] == b["type"]:
+            if a["type"] == b["type"] and frozenset((a["id"], b["id"])) not in linked:
                 s = name_sim(a, b)
                 if s >= 0.85:
                     dup.append({"a": a["id"], "b": b["id"], "name_similarity": round(s, 2)})
+    dup.sort(key=lambda d: -d["name_similarity"])
     # roles that may be stale: open-ended role facts older than 18 months
     roles = {"CEO_OF", "MANAGING_DIRECTOR_OF", "WORKS_AT", "WORKED_AT", "JOINED", "PARTNER_AT", "HEAD_OF"}
     stale = []
@@ -941,7 +944,7 @@ def cmd_audit(args):
                 for n in nodes.values() if n["type"] == "Source"]
     rules = [{"id": n["id"], "name": n["name"], "text": n.get("text"), "created": n.get("created")}
              for n in nodes.values() if n["type"] == "Rule"]
-    out({"verify_weak_facts": weak[:60], "weak_count": len(weak), "possible_duplicates": dup[:40],
+    out({"verify_weak_facts": weak[:60], "weak_count": len(weak), "possible_duplicates": dup[:40], "duplicates_count": len(dup),
          "possibly_stale_roles": stale[:40], "conflicts": conflicts[:20], "orphans": orphans[:40],
          "entities_without_summary": thin[:60], "sources": src_fail, "rules": rules})
 
