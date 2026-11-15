@@ -11,6 +11,7 @@ Needs network access in the task's cloud environment ("Full", or "Custom" with t
       The full ranked list is in <work>/items.json. Dated items more than a day in the future (events, deadlines) are
       not news: they are listed under `upcoming`, not ranked. --no-baseline: a source read for the first time
       keeps its undated links as today's news instead of setting them aside as backlog (first issue only).
+      Each Source read gets last_read (today) and failures (days failed in a row, 0 on success) in the graph.
 
   python3 tools/fetch.py article <url> [<url> ...]
       Main text, title, date and author of each article (HTML or PDF). The text is cached for this run and
@@ -477,6 +478,17 @@ def cmd_sources(args):
             if baseline and dropped:
                 res["baseline"] = True
     save_first_seen(fs, today)
+    import fcntl
+    with open(os.path.join(graph.GDIR, ".lock"), "w") as lk:       # graph.py's write lock: reporters may be writing
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        nodes, edges = graph.load()
+        for r in (r for r in results if r["id"] in nodes):         # each Source's counters: failures = failed days in a row,
+            p = nodes[r["id"]].setdefault("props", {})               # not counting this environment's own faults
+            if r["ok"]:
+                p.update(last_read=str(today), failures=0); p.pop("failed_on", None)
+            elif p.get("failed_on") != str(today) and not (r.get("error") or "").startswith(("blocked by this environment", "ModuleNotFoundError")):
+                p.update(failures=(p.get("failures") or 0) + 1, failed_on=str(today))
+        graph.save(nodes, edges)
     ranked = rank(items, nodes, edges)
     json.dump(ranked, open(os.path.join(outdir, "items.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     status = [{"id": r["id"], "ok": r["ok"], "mode": r.get("mode"), "browser": r.get("browser"),

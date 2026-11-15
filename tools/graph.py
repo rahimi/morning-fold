@@ -1148,7 +1148,7 @@ def cmd_help(args):
             "Rule": "name = the lesson in a few words, text = the rule and why, props {origin, helpful, harmful}",
             "Thesis": "name, text = claim, props {claim, probability, resolves, status: open|resolved_true|resolved_false|withdrawn, origin: reader|editor, history: [{date, probability, why}]}",
             "Signal": "name = the claim, text = what was seen where, props {published, kind, status: open|confirmed|refuted, confirmed_on, confirmed_by}",
-            "Source": "props {url, feed, kind, group, lang, cadence, status, last_read, failures, articles, stories}",
+            "Source": "props {url, feed, kind, group, lang, cadence, status, last_read, failures, failed_on, articles, stories} (fetch.py sources sets last_read, failures, failed_on)",
             "Story": "name = headline, text = deck, props {date, issue, kicker, position}; edges CITES articles, ABOUT entities",
             "Issue": "name, props {number, date, kind: issue|week-ahead, url}; edges CONTAINS stories",
             "Article": "name = headline, text = dense summary, props {url, published, lang, source, kind?, show?}; edge FROM its Source",
