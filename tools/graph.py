@@ -248,7 +248,7 @@ def edge_view(e, nodes):
     d = {"id": e["id"], "fact": f"{nm(e['src'])} —{e['rel']}→ {nm(e['dst'])}",
          "src": e["src"], "rel": e["rel"], "dst": e["dst"]}
     for k in ("valid_from", "valid_to", "observed", "confidence", "source", "note", "quote", "grounded", "verified",
-              "invalid_at", "invalidated_by", "created"):
+              "current_on", "invalid_at", "invalidated_by", "created"):
         if e.get(k) not in (None, ""):
             d[k] = e[k]
     return d
@@ -383,7 +383,7 @@ def upsert(data):
             edges[eid] = cur; created.append(eid)
         else:
             updated.append(eid)
-        keys = ("valid_from", "valid_to", "observed", "confidence", "source", "note", "quote", "verified", "props")
+        keys = ("valid_from", "valid_to", "observed", "confidence", "source", "note", "quote", "verified", "current_on", "props")
         if cur.get("source") and e.get("source") and e["source"] != cur["source"] and not e.get("replace") \
                 and not (e["source"].startswith("article:") and not str(cur["source"]).startswith("article:")):
             # A second source for a known fact corroborates it: the first source, quote and note stay, the
@@ -922,11 +922,16 @@ def cmd_audit(args):
                 if s >= 0.85:
                     dup.append({"a": a["id"], "b": b["id"], "name_similarity": round(s, 2)})
     dup.sort(key=lambda d: -d["name_similarity"])
-    # roles that may be stale: open-ended role facts older than 18 months
+    # roles that may be stale: open-ended role facts older than 18 months, unless confirmed current (`current_on`) in the last
+    # six months; `verified` says the source was re-read, not that the role still holds
     roles = {"CEO_OF", "MANAGING_DIRECTOR_OF", "WORKS_AT", "WORKED_AT", "JOINED", "PARTNER_AT", "HEAD_OF"}
-    stale = []
+    stale, checked = [], today - datetime.timedelta(days=183)
     for e in edges.values():
-        if e["rel"] in roles and not e.get("valid_to"):
+        try:                    # a `current_on` that is no date, or a date ahead of today, confirms nothing
+            current = checked <= datetime.date.fromisoformat(str(e.get("current_on"))[:10]) <= today
+        except ValueError:
+            current = False
+        if e["rel"] in roles and not e.get("valid_to") and not current:
             vf = (e.get("valid_from") or e.get("observed") or "")[:10]
             try:
                 y, m = int(vf[:4]), int(vf[5:7]) if len(vf) >= 7 else 1
@@ -953,7 +958,9 @@ def cmd_audit(args):
     rules = [{"id": n["id"], "name": n["name"], "text": n.get("text"), "created": n.get("created")}
              for n in nodes.values() if n["type"] == "Rule"]
     out({"verify_weak_facts": weak[:60], "weak_count": len(weak), "possible_duplicates": dup[:40], "duplicates_count": len(dup),
-         "possibly_stale_roles": stale[:40], "conflicts": conflicts[:20], "orphans": orphans[:40],
+         "possibly_stale_roles": stale[:40],
+         "stale_roles_hint": "a role you confirm as still current: upsert {\"edges\": [{\"id\", \"src\", \"rel\", \"dst\" as listed, "
+                             f"\"current_on\": \"{today}\"}}]}}; audit skips it for 183 days", "conflicts": conflicts[:20], "orphans": orphans[:40],
          "entities_without_summary": thin[:60], "sources": src_fail, "rules": rules})
 
 
@@ -1166,7 +1173,7 @@ def cmd_help(args):
         "policy_relations": "Regulator|Company|Person PROPOSED Policy; CONSULTED_ON Policy (opened it, or responded); APPROVED Policy|Project; DECIDED Policy|Project (a ruling, a rejection: say which in props.outcome); Company LAUNCHED_PROJECT Project; Policy APPLIES_TO Company|Topic|Project. Dates: valid_from = the day of the act.",
         "relations": RELS,
         "node": {"type": CORE_TYPES, "fields": "id?, type, name, aliases[], text, props{}, sources[]"},
-        "edge": {"fields": "src, rel (UPPER_SNAKE), dst, valid_from?, valid_to?, confidence 0-1, source (Article id or URL), quote (short verbatim source wording), note, verified (date checked in a dreaming pass). A quote is checked against the article text cached by fetch.py article (grounded: exact|alnum|unchecked); a quote that is not in the text is refused"}})
+        "edge": {"fields": "src, rel (UPPER_SNAKE), dst, valid_from?, valid_to?, confidence 0-1, source (Article id or URL), quote (short verbatim source wording), note, verified (date checked in a dreaming pass), current_on (date a role was confirmed still current). A quote is checked against the article text cached by fetch.py article (grounded: exact|alnum|unchecked); a quote that is not in the text is refused"}})
 
 
 WRITES = {"upsert", "merge", "delete", "reindex", "invalidate", "rule", "seed"}
