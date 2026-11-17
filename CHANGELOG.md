@@ -2,6 +2,11 @@
 
 What each engine release changes in a reader's paper, newest first. Instances take the latest release tag (`reader.md`'s `engine_updates`); the dreaming run installs it and tells the reader the first section below. "Instance changes" lists what an instance must change by hand or by the run before the release works; most releases have none.
 
+## 0.2.2
+
+### What changes in your paper
+- Nothing in the paper. New setups give the scheduled task the working branch `main`, so runs no longer leave a `claude/…` branch in the repository each day. If yours collects them, ask Claude Code on your computer to set the scheduled task's working branch to `main`; the branches only hold what is already on `main` and can then be deleted.
+
 ## 0.2.1
 
 ### What changes in your paper
