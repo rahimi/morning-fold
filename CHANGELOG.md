@@ -11,7 +11,7 @@ What each engine release changes in a reader's paper, newest first. Instances ta
 - Podcasts you listen to anyway are ranked among themselves and no longer push news down the list; trade podcasts are transcribed first.
 - The Saturday memory pass works on a shorter, truer list: real look-alike entities are listed apart from brand and group pairs (a group and its subsidiary), and facts whose source was merged away are listed so they get fixed.
 - When two articles report different figures for one fact, the editor now sees both.
-- New `engine_feedback: relay`: engine problems the Saturday run finds go to the engine's maintainer as generic, leak-checked text, without a GitHub login. Off unless you say yes; the relay goes live with the final 0.3.0 release, so keep it off on a release candidate.
+- New `engine_feedback: relay`: engine problems the Saturday run finds go to the engine's maintainer as generic, leak-checked text, without a GitHub login. Off unless you say yes; reply "send engine problems to the maintainer" to turn it on. Issues go to a private inbox only the maintainer reads, filed by the relay, not under your name.
 
 ## 0.2.1
 

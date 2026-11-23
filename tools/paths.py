@@ -91,7 +91,7 @@ DEFAULTS = {
     "podcast_budget_weekday": 90,    # minutes of audio transcribed locally per weekday run
     "podcast_budget_weekend": 240,
     "engine_feedback": "off",        # off | relay | issue | pr: how the dreaming run reports engine problems (FEEDBACK.md)
-    "feedback_relay": "https://relay.example.invalid/v1/feedback",   # the maintainer's relay (relay/); set when deployed
+    "feedback_relay": "https://morning-fold-relay.morning-fold.workers.dev/v1/feedback",   # the maintainer's relay (relay/)
     "engine_updates": "auto",        # auto | rc | off: the dreaming run moves the engine to the newest release (rc: also candidates)
 }
 

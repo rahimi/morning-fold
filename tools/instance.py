@@ -457,7 +457,8 @@ def cmd_feedback(args):
             "title": title.strip(), "body": body.strip()}
     import urllib.error
     import urllib.request
-    req = urllib.request.Request(url, json.dumps(data).encode(), {"content-type": "application/json"})
+    req = urllib.request.Request(url, json.dumps(data).encode(), {"content-type": "application/json",
+                                                                     "user-agent": "morning-fold-feedback (+https://github.com/rahimi/morning-fold)"})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             ans = json.loads(r.read())
