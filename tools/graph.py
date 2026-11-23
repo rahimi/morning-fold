@@ -275,13 +275,37 @@ def _norm(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
+_MOJI = re.compile("[\u00c2-\u00f4][\u0080-\u00bf\u0152\u0153\u0160\u0161\u0178\u017d\u017e\u0192\u02c6\u02dc"
+                   "\u2013\u2014\u2018-\u201a\u201c-\u201e\u2020-\u2022\u2026\u2030\u2039\u203a\u20ac\u2122]+")
+_MARK = re.compile("[\u00c2\u00c3][\u0080-\u00bf]|\u00e2\u20ac")      # "Ã¶", "Â ", "â€": UTF-8 read as Latin-1/cp1252
+
+
+def unmojibake(s):
+    """UTF-8 that was read as Latin-1 or cp1252 ("BÃ¶rse"), repaired run by run, only in a text that shows such markers
+    and only into letters and punctuation such pages hold ("weiß“" stays as it is); anything else stays as it is."""
+    plausible = lambda c: ord(c) < 0x250 or c in "\u02c6\u02dc\u20ac" or 0x2010 <= ord(c) <= 0x2122
+
+    def fix(m):
+        for enc in ("latin-1", "cp1252"):
+            try:
+                r = m.group().encode(enc).decode("utf-8")
+                if all(map(plausible, r)):
+                    return r
+            except UnicodeError:
+                pass
+        return m.group()
+    return _MOJI.sub(fix, s) if _MARK.search(s) else s
+
+
 def ground(quote, text):
-    """'exact' when the normalised quote occurs in the normalised text, 'alnum' when its letters and digits do, else None."""
-    q, t = _norm(quote), _norm(text)
-    if q and q in t:
+    """'exact' when the normalised quote occurs in the normalised text, 'alnum' when its letters and digits do, else None.
+    Garbled and clean spellings match each other ("BÃ¶rse", "Börse"): quotes copied from a page read with the wrong
+    charset stay grounded when the page is re-fetched, and so do clean quotes against a garbled cached text."""
+    pairs = [(q, t) for q in {_norm(quote), _norm(unmojibake(quote))} for t in {_norm(text), _norm(unmojibake(text))}]
+    if any(q and q in t for q, t in pairs):
         return "exact"
-    qa, ta = re.sub(r"[^\w]", "", q), re.sub(r"[^\w]", "", t)
-    if len(qa) >= 12 and qa in ta:
+    alnum = lambda s: re.sub(r"[^\w]", "", s)
+    if any(len(alnum(q)) >= 12 and alnum(q) in alnum(t) for q, t in pairs):
         return "alnum"
     return None
 

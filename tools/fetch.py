@@ -156,9 +156,25 @@ def get(url, allow_browser=True):
         b = render(url)
         if b is not None and b.status_code < 400 and not CHALLENGE.search(b.text[:3000]):
             return b
-    res = Resp(r.url, r.status_code, r.text, r.content)
+    res = Resp(r.url, r.status_code, decode(r), r.content)
     res.headers = r.headers
     return res
+
+
+def decode(r):
+    """A response's text from its bytes: the charset the header declares, else the page's own <meta charset> (or
+    http-equiv), else UTF-8 when it decodes, else a guess. requests' r.text reads text/* without a charset as
+    ISO-8859-1, which garbles UTF-8 pages ("BÃ¶rse")."""
+    m = re.search(r"charset=[\"']?([\w.:-]+)", r.headers.get("content-type", ""), re.I) \
+        or re.search(rb"<meta[^>]+charset=[\"']?([\w.:-]+)", r.content[:4096], re.I)
+    declared = m and (m.group(1) if isinstance(m.group(1), str) else m.group(1).decode())
+    latin = declared and declared.lower().replace("_", "-") in ("iso-8859-1", "latin-1", "latin1", "iso-8859-15", "windows-1252", "cp1252")
+    for enc in ["utf-8"] * bool(latin) + ([declared] if m else []) + ["utf-8"]:     # UTF-8 bytes under a Latin-1 label: UTF-8
+        try:
+            return r.content.decode(enc)
+        except (LookupError, UnicodeDecodeError):
+            pass
+    return r.content.decode(r.apparent_encoding or "utf-8", "replace")
 
 
 def find_feed(html, base):
@@ -588,6 +604,7 @@ def cmd_article(args):
             text = d.get("text") or ""
             if not text.strip():
                 return {"url": u, "ok": False, "error": "no text found"}
+            text = graph.unmojibake(text)      # a page garbled at its source: reporters copy quotes from this text
             store_text([u, r.url], text)    # cache under both the asked and the final URL, and archive
             return {"url": r.url, "asked": u, "ok": True, "browser": r.browser, "title": d.get("title"), "date": d.get("date"),
                     "author": d.get("author"), "sitename": d.get("sitename"), "chars": len(text),
@@ -600,13 +617,14 @@ def cmd_article(args):
 
 
 def store_text(keys, text):
-    """Caches text for the grounding check under each key and archives it gzipped (once)."""
+    """Caches text for the grounding check under each key and archives it gzipped (once; an archived text garbled by a
+    wrong charset is replaced by the new one, so the passage index isn't garbled)."""
     import gzip
     os.makedirs(graph.TEXT_CACHE, exist_ok=True)
     for key in {k for k in keys if k}:
         open(graph.text_path(key), "w", encoding="utf-8").write(text)
         ap = graph.archive_path(key)
-        if not os.path.exists(ap):
+        if not os.path.exists(ap) or graph.unmojibake(old := gzip.open(ap, "rt", encoding="utf-8").read()) != old:
             os.makedirs(os.path.dirname(ap), exist_ok=True)
             with gzip.open(ap, "wt", encoding="utf-8") as g:
                 g.write(text)
