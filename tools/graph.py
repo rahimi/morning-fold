@@ -203,17 +203,44 @@ def resolve(nodes, ref):
     return hits[0] if hits else None
 
 
-def name_sim(a, b):
-    """Best string similarity between any name/alias of a and of b (accents and case ignored)."""
+LEGAL = re.compile(r"(-(gmbh|ag|se|sa|ltd|plc|inc|llc|bv|nv|kg|co|kgaa|vvag|mbh|group|gruppe|holdings?))+$")
+
+
+def names(n, strict=False):
+    """A node's name and aliases as slugs; strict: an organisation's legal forms and group words stripped from the end."""
+    org = strict and n.get("type") != "Person"
+    return [LEGAL.sub("", slug(x)) if org else slug(x) for x in [n.get("name", "")] + n.get("aliases", [])]
+
+
+def part_of(x, y):
+    """One slug is the other plus words ("acme" and "acme-re"): mostly a group and its brand."""
+    return x != y and min(len(x), len(y)) >= 4 and (f"-{x}-" in f"-{y}-" or f"-{y}-" in f"-{x}-")
+
+
+def name_sim(a, b, strict=False):
+    """Best string similarity between any name/alias of a and of b (accents and case ignored). Loose: one name inside
+    the other counts 1.0 (finding an entity by part of its name). strict (duplicates): "Acme AG" = "Acme Group", but a
+    brand is not its group ("Acme Re" vs "Acme": part_of), first words must agree, similarities under 0.9 count 0;
+    a person whose name starts another's ("Ada Brant", "Ada Brant-Holm") counts 1.0."""
+    person = a.get("type") == b.get("type") == "Person"
     import difflib
-    na = [slug(x) for x in [a.get("name", "")] + a.get("aliases", [])]
-    nb = [slug(x) for x in [b.get("name", "")] + b.get("aliases", [])]
     best = 0.0
-    for x in na:
-        for y in nb:
-            if x and y:
+    for x in names(a, strict):
+        for y in names(b, strict):
+            if not (x and y):
+                continue
+            if strict:
+                m = difflib.SequenceMatcher(None, x, y)
+                if part_of(x, y):
+                    r = 1.0 if person and ((x + "-").startswith(y + "-") or (y + "-").startswith(x + "-")) else 0.0
+                elif m.real_quick_ratio() >= 0.9 and m.quick_ratio() >= 0.9 and (
+                        difflib.SequenceMatcher(None, x.split("-")[0], y.split("-")[0]).ratio() >= 0.8):
+                    r = m.ratio()       # first words agree too: "Alba Makler" and "Elba Makler" share only the tail
+                else:
+                    r = 0.0
+            else:
                 r = 1.0 if (x in y or y in x) and min(len(x), len(y)) >= 4 else difflib.SequenceMatcher(None, x, y).ratio()
-                best = max(best, r)
+            best = max(best, r)
     return best
 
 
@@ -442,8 +469,8 @@ def upsert(data):
                 other = ids[k]
                 if other == nid or other not in nodes or nodes[other]["type"] != nodes[nid]["type"]:
                     continue
-                ns = name_sim(nodes[nid], nodes[other])
-                if ns > 0.85 and sims[k] > 0.88:
+                ns = name_sim(nodes[nid], nodes[other], strict=True)
+                if ns >= 0.9 and sims[k] > 0.88:
                     dupes.append({"new": nid, "maybe_same_as": other, "name_similarity": round(ns, 2),
                                   "meaning_similarity": round(float(sims[k]), 3)})
     return {"created": created, "updated": updated, "embedded": embedded,
@@ -934,18 +961,24 @@ def cmd_audit(args):
     weak = [edge_view(e, nodes) for e in edges.values()
             if e["rel"] not in ("FROM", "CITES", "CONTAINS", "ABOUT", "PREFERS")
             and not e.get("verified") and (float(e.get("confidence") or 1) < 0.8 or e.get("grounded") == "unchecked")]
-    # duplicate candidates among entities (name similarity), most similar first; a pair joined by any fact (a group
-    # and its subsidiary) or by NOT_SAME_AS (checked in an earlier pass: two entities) is known to be two
+    # duplicate candidates among entities (strict name similarity), most similar first; group pairs: one organisation's
+    # name is part of the other's ("Acme" and "Acme Re": a brand and its group, rarely one entity), most facts first. A pair joined by any
+    # fact (PARENT_OF) or by NOT_SAME_AS (checked in an earlier pass: two entities) is known to be two
     ents = [n for n in nodes.values() if n["type"] in ACTOR_TYPES]
     linked = {frozenset((e["src"], e["dst"])) for e in edges.values()}
-    dup = []
+    facts = collections.Counter(x for e in edges.values() for x in (e["src"], e["dst"]))
+    dup, group = [], []
     for i, a in enumerate(ents):
         for b in ents[i + 1:]:
             if a["type"] == b["type"] and frozenset((a["id"], b["id"])) not in linked:
-                s = name_sim(a, b)
-                if s >= 0.85:
+                s = name_sim(a, b, strict=True)
+                if s >= 0.9:
                     dup.append({"a": a["id"], "b": b["id"], "name_similarity": round(s, 2)})
+                elif a["type"] != "Person" and any(part_of(x, y) for s in (True, False)
+                                                       for x in names(a, s) for y in names(b, s)):
+                    group.append({"a": a["id"], "b": b["id"], "facts": facts[a["id"]] + facts[b["id"]]})
     dup.sort(key=lambda d: -d["name_similarity"])
+    group.sort(key=lambda d: -d["facts"])
     # roles that may be stale: open-ended role facts older than 18 months, unless confirmed current (`current_on`) in the last
     # six months; `verified` says the source was re-read, not that the role still holds
     roles = {"CEO_OF", "MANAGING_DIRECTOR_OF", "WORKS_AT", "WORKED_AT", "JOINED", "PARTNER_AT", "HEAD_OF"}
@@ -982,6 +1015,7 @@ def cmd_audit(args):
     rules = [{"id": n["id"], "name": n["name"], "text": n.get("text"), "created": n.get("created")}
              for n in nodes.values() if n["type"] == "Rule"]
     out({"verify_weak_facts": weak[:60], "weak_count": len(weak), "possible_duplicates": dup[:40], "duplicates_count": len(dup),
+         "unlinked_group_pairs": group[:30], "group_pairs_count": len(group),
          "possibly_stale_roles": stale[:40],
          "stale_roles_hint": "a role you confirm as still current: upsert {\"edges\": [{\"id\", \"src\", \"rel\", \"dst\" as listed, "
                              f"\"current_on\": \"{today}\"}}]}}; audit skips it for 183 days", "conflicts": conflicts[:20], "orphans": orphans[:40],
@@ -1164,7 +1198,7 @@ def cmd_help(args):
         "brief": "START HERE: compact start-up view (reader, rules, open theses, facts since last issue, key entities)",
         "dossier <id|name>... [--days 90] [--q \"archive question\"] [--no-passages]": "before writing a story: its entities' recent and older facts with outlets, conflicts, invalidations, linked theses, earlier stories, signals, archive passages",
         "patterns [--days 14] [--min 3] [--all]": "story candidates from the memory: entities with several new facts from >= 2 independent outlets, not printed in the last 7 days",
-        "audit": "work list for the Saturday dreaming pass (weak facts, duplicates, stale roles, conflicts, orphans)",
+        "audit": "work list for the Saturday dreaming pass (weak facts, duplicates, group pairs, stale roles, conflicts, orphans)",
         "stats": "counts by node type and relation",
         "search \"text\" [--type T] [--k N] [--edges]": "find by meaning and name; --edges includes facts",
         "get <id|name>": "a node with its facts",
