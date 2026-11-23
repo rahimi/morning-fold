@@ -5,13 +5,13 @@ What each engine release changes in a reader's paper, newest first. Instances ta
 ## 0.3.0
 
 ### What changes in your paper
-- Nothing a run learned gets lost between runs any more. Scheduled cloud runs work on a branch of their own, and some of them never reached `main`, so the next run started without the previous run's memory. Every run now starts by merging any such branch (`instance.py sync`), pushes both its branch and `main`, and deletes finished run branches. A branch that can't be merged safely is left alone and reported, with the commands to resolve it.
+- Nothing a run learned gets lost between runs any more. Scheduled cloud runs work on a branch of their own, and some of them never reached `main`, so the next run started without the previous run's memory. Every run now starts by merging any such branch (`instance.py sync`), pushes both its branch and `main`, and deletes finished run branches. A branch that can't be merged safely is left alone and reported, with the commands to resolve it. If the run that installs this release itself lands only on its own branch, the next runs still use the previous engine until the next Saturday installs it again; nothing is lost.
 - German pages read cleanly: pages served without a declared character set no longer turn umlauts into garbled text, and quotes copied from garbled text before still count as found in their source.
 - A placeholder page (filler text instead of the article) is reported as unreadable instead of being stored as the article.
 - Podcasts you listen to anyway are ranked among themselves and no longer push news down the list; trade podcasts are transcribed first.
 - The Saturday memory pass works on a shorter, truer list: real look-alike entities are listed apart from brand and group pairs (a group and its subsidiary), and facts whose source was merged away are listed so they get fixed.
 - When two articles report different figures for one fact, the editor now sees both.
-- New `engine_feedback: relay`: engine problems the Saturday run finds go to the engine's maintainer as generic, leak-checked text, without a GitHub login. Off unless you say yes; reply "send engine problems to the maintainer" to turn it on.
+- New `engine_feedback: relay`: engine problems the Saturday run finds go to the engine's maintainer as generic, leak-checked text, without a GitHub login. Off unless you say yes; the relay goes live with the final 0.3.0 release, so keep it off on a release candidate.
 
 ## 0.2.1
 
