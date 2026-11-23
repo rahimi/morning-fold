@@ -9,7 +9,8 @@ Needs network access in the task's cloud environment ("Full", or "Custom" with t
       scores every item for relevance to this reader (embeddings against the beats, open theses and known
       entities, plus a boost when a known entity is named) and prints the top items plus per-source status.
       The full ranked list is in <work>/items.json. Dated items more than a day in the future (events, deadlines) are
-      not news: they are listed under `upcoming`, not ranked. --no-baseline: a source read for the first time
+      not news: they are listed under `upcoming`, not ranked. Episodes of the reader's own shows (podcast group heard)
+      are ranked among themselves under `heard`, never in `top`. --no-baseline: a source read for the first time
       keeps its undated links as today's news instead of setting them aside as backlog (first issue only).
       Each Source read gets last_read (today) and failures (days failed in a row, 0 on success) in the graph.
 
@@ -28,7 +29,7 @@ Needs network access in the task's cloud environment ("Full", or "Custom" with t
       the page (or PDF) with `article` and let the model pick the dates.
 
   python3 tools/fetch.py transcribe <episode url> [<episode url> ...] [--budget-minutes N]
-      Text of podcast episodes listed by `sources` (kind podcast): the publisher's transcript from the feed
+      Text of podcast episodes listed by `sources` (trade episodes first, then heard): the publisher's transcript from the feed
       when there is one, else a transcript on the episode page, else the audio is downloaded and transcribed
       locally with Whisper (large-v3-turbo; about 13 min per hour of audio on 4 CPUs). --budget-minutes caps
       the audio transcribed locally (default: reader.md podcast_budget_weekday); episodes over budget are reported and left for a later run. The text is
@@ -94,6 +95,17 @@ def visible_len(html):
     return len(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", t)).strip())
 
 
+LOREM = {"lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit", "sed", "eiusmod", "tempor",
+         "incididunt", "ut", "labore", "et", "dolore", "magna", "aliqua"}
+
+
+def placeholder(text):
+    """A site's placeholder body (lorem ipsum), not the article: both markers, and twice or a fifth of the words."""
+    t = text.lower()
+    w = re.findall(r"[a-z]+", t)
+    return "dolor sit amet" in t and (t.count("lorem ipsum") >= 2 or "lorem ipsum" in t and sum(x in LOREM for x in w) > 0.2 * len(w))
+
+
 def blocked(r):
     title = (re.search(r"(?is)<title[^>]*>(.*?)</title>", r.text or "") or [None, ""])[1]
     ctype = r.headers.get("content-type", "") if hasattr(r, "headers") else ""
@@ -156,9 +168,25 @@ def get(url, allow_browser=True):
         b = render(url)
         if b is not None and b.status_code < 400 and not CHALLENGE.search(b.text[:3000]):
             return b
-    res = Resp(r.url, r.status_code, r.text, r.content)
+    res = Resp(r.url, r.status_code, decode(r), r.content)
     res.headers = r.headers
     return res
+
+
+def decode(r):
+    """A response's text from its bytes: the charset the header declares, else the page's own <meta charset> (or
+    http-equiv), else UTF-8 when it decodes, else a guess. requests' r.text reads text/* without a charset as
+    ISO-8859-1, which garbles UTF-8 pages ("BÃ¶rse")."""
+    m = re.search(r"charset=[\"']?([\w.:-]+)", r.headers.get("content-type", ""), re.I) \
+        or re.search(rb"<meta[^>]+charset=[\"']?([\w.:-]+)", r.content[:4096], re.I)
+    declared = m and (m.group(1) if isinstance(m.group(1), str) else m.group(1).decode())
+    latin = declared and declared.lower().replace("_", "-") in ("iso-8859-1", "latin-1", "latin1", "iso-8859-15", "windows-1252", "cp1252")
+    for enc in ["utf-8"] * bool(latin) + ([declared] if m else []) + ["utf-8"]:     # UTF-8 bytes under a Latin-1 label: UTF-8
+        try:
+            return r.content.decode(enc)
+        except (LookupError, UnicodeDecodeError):
+            pass
+    return r.content.decode(r.apparent_encoding or "utf-8", "replace")
 
 
 def find_feed(html, base):
@@ -431,7 +459,7 @@ def cmd_sources(args):
         top = int(args[args.index("--top") + 1])
     os.makedirs(outdir, exist_ok=True)
     nodes, edges = graph.load()
-    known = {n.get("props", {}).get("url") for n in nodes.values() if n["type"] == "Article"}
+    known = {u for n in nodes.values() if n["type"] == "Article" for u in [n.get("props", {}).get("url"), *n.get("props", {}).get("urls", [])]}
     known |= {episode_key(n["props"].get("source"), n["props"].get("published"), t) for n in nodes.values()
               if n["type"] == "Article" and n.get("props", {}).get("kind") == "podcast" for t in (n["name"], n["name"].split(": ", 1)[-1])}
     today = datetime.date.today()
@@ -491,8 +519,12 @@ def cmd_sources(args):
                 elif not outage and p.get("failed_on") != str(today) and not (r.get("error") or "").startswith(("blocked by this environment", "ModuleNotFoundError")):
                     p.update(failures=(p.get("failures") or 0) + 1, failed_on=str(today))
             graph.save(nodes, edges)
-    ranked = rank(items, nodes, edges)
-    json.dump(ranked, open(os.path.join(outdir, "items.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    # the reader's own shows (group heard) only feed You heard it: ranked among themselves, never in `top`
+    heard = rank([i for i in items if i.get("group") == "heard"], nodes, edges)
+    ranked = rank([i for i in items if i.get("group") != "heard"], nodes, edges)
+    json.dump(ranked + heard, open(os.path.join(outdir, "items.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    ep = lambda i: {k: i[k] for k in ("score", "show", "group", "title", "url", "published", "duration_s", "named") if i.get(k)} \
+        | {"publisher_transcript": bool(i.get("transcripts"))}
     status = [{"id": r["id"], "ok": r["ok"], "mode": r.get("mode"), "browser": r.get("browser"),
                "new": len(r.get("new_items", [])), "error": r.get("error"),
                "undated_backlog_dropped": r.get("undated_backlog_dropped"), "baseline": r.get("baseline")} for r in results]
@@ -503,8 +535,7 @@ def cmd_sources(args):
          "upcoming": [{k: i.get(k) for k in ("published", "title", "url", "source")} for i in sorted(upcoming, key=lambda i: i["published"])][:40],
          "undated_backlog_dropped": sum(r.get("undated_backlog_dropped") or 0 for r in results),
          "top": [{k: i[k] for k in ("score", "title", "url", "source", "published", "named", "copies") if i.get(k)} for i in ranked[:top]],
-         "podcasts": [{k: i[k] for k in ("score", "show", "group", "title", "url", "published", "duration_s", "named") if i.get(k)}
-                      | {"publisher_transcript": bool(i.get("transcripts"))} for i in ranked if i.get("kind") == "podcast"],
+         "podcasts": [ep(i) for i in ranked if i.get("kind") == "podcast"], "heard": [ep(i) for i in heard],
          "full_list": os.path.join(outdir, "items.json"),
          **({"unseeded_sources": unseeded, "hint": "run graph.py seed to add them"} if unseeded else {}),
          "per_source": [s for s in status if s["ok"]]})
@@ -586,8 +617,17 @@ def cmd_article(args):
                                 "documents": docs, "text": ""}
                     return {"url": u, "ok": False, "error": "no main text found"}
             text = d.get("text") or ""
+            if placeholder(text) and not r.browser and (b := render(u)) is not None and b.status_code < 400:
+                j = trafilatura.extract(b.text, url=b.url, output_format="json", with_metadata=True, include_comments=False,
+                                        favor_recall=True)      # a placeholder for plain HTTP: the browser's page
+                r, d = b, json.loads(j) if j else {}
+                text = d.get("text") or ""
             if not text.strip():
                 return {"url": u, "ok": False, "error": "no text found"}
+            text = graph.unmojibake(text)      # a page garbled at its source: reporters copy quotes from this text
+            if placeholder(text):
+                return {"url": u, "ok": False, "browser": r.browser, "error": "not readable: the page holds placeholder text "
+                        "(lorem ipsum), not the article; not cached. Try again in a later run or read another report"}
             store_text([u, r.url], text)    # cache under both the asked and the final URL, and archive
             return {"url": r.url, "asked": u, "ok": True, "browser": r.browser, "title": d.get("title"), "date": d.get("date"),
                     "author": d.get("author"), "sitename": d.get("sitename"), "chars": len(text),
@@ -600,13 +640,14 @@ def cmd_article(args):
 
 
 def store_text(keys, text):
-    """Caches text for the grounding check under each key and archives it gzipped (once)."""
+    """Caches text for the grounding check under each key and archives it gzipped (once; an archived text garbled by a
+    wrong charset is replaced by the new one, so the passage index isn't garbled)."""
     import gzip
     os.makedirs(graph.TEXT_CACHE, exist_ok=True)
     for key in {k for k in keys if k}:
         open(graph.text_path(key), "w", encoding="utf-8").write(text)
         ap = graph.archive_path(key)
-        if not os.path.exists(ap):
+        if not os.path.exists(ap) or graph.unmojibake(old := gzip.open(ap, "rt", encoding="utf-8").read()) != old:
             os.makedirs(os.path.dirname(ap), exist_ok=True)
             with gzip.open(ap, "wt", encoding="utf-8") as g:
                 g.write(text)
@@ -729,11 +770,11 @@ def cmd_transcribe(args):
         pass
     epdir = os.path.join(outdir, "episodes"); os.makedirs(epdir, exist_ok=True)
     used, results = 0.0, []
-    for u in args:
+    for u in sorted(args, key=lambda u: (items.get(u) or {}).get("group") == "heard"):     # trade episodes first
         it = items.get(u)
         res = {"url": u, "ok": False}
         if not it:
-            res["error"] = "not in items.json: run `fetch.py sources` first and pass an episode url from its podcasts list"
+            res["error"] = "not in items.json: run `fetch.py sources` first and pass an episode url from its podcasts or heard list"
         else:
             res.update(show=it.get("show"), title=it.get("title"), published=it.get("published"))
             try:
@@ -922,7 +963,7 @@ def cmd_rank(args):
     for i in items:
         i.pop("copies", None); i.pop("named", None); i.pop("score", None)
     nodes, edges = graph.load()
-    ranked = rank(items, nodes, edges)
+    ranked = rank([i for i in items if i.get("group") != "heard"], nodes, edges)     # heard episodes: never in `top`
     qs, names = profile(nodes, edges)
     out({"items": len(items), "after_folding_copies": len(ranked), "profile_queries": len(qs), "boost_names": len(names),
          "top": [{k: i[k] for k in ("score", "title", "url", "source", "published", "named", "copies") if i.get(k)} for i in ranked[:top]]})

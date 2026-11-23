@@ -203,17 +203,44 @@ def resolve(nodes, ref):
     return hits[0] if hits else None
 
 
-def name_sim(a, b):
-    """Best string similarity between any name/alias of a and of b (accents and case ignored)."""
+LEGAL = re.compile(r"(-(gmbh|ag|se|sa|ltd|plc|inc|llc|bv|nv|kg|co|kgaa|vvag|mbh|group|gruppe|holdings?))+$")
+
+
+def names(n, strict=False):
+    """A node's name and aliases as slugs; strict: an organisation's legal forms and group words stripped from the end."""
+    org = strict and n.get("type") != "Person"
+    return [LEGAL.sub("", slug(x)) if org else slug(x) for x in [n.get("name", "")] + n.get("aliases", [])]
+
+
+def part_of(x, y):
+    """One slug is the other plus words ("acme" and "acme-re"): mostly a group and its brand."""
+    return x != y and min(len(x), len(y)) >= 4 and (f"-{x}-" in f"-{y}-" or f"-{y}-" in f"-{x}-")
+
+
+def name_sim(a, b, strict=False):
+    """Best string similarity between any name/alias of a and of b (accents and case ignored). Loose: one name inside
+    the other counts 1.0 (finding an entity by part of its name). strict (duplicates): "Acme AG" = "Acme Group", but a
+    brand is not its group ("Acme Re" vs "Acme": part_of), first words must agree, similarities under 0.9 count 0;
+    a person whose name starts another's ("Ada Brant", "Ada Brant-Holm") counts 1.0."""
+    person = a.get("type") == b.get("type") == "Person"
     import difflib
-    na = [slug(x) for x in [a.get("name", "")] + a.get("aliases", [])]
-    nb = [slug(x) for x in [b.get("name", "")] + b.get("aliases", [])]
     best = 0.0
-    for x in na:
-        for y in nb:
-            if x and y:
+    for x in names(a, strict):
+        for y in names(b, strict):
+            if not (x and y):
+                continue
+            if strict:
+                m = difflib.SequenceMatcher(None, x, y)
+                if part_of(x, y):
+                    r = 1.0 if person and ((x + "-").startswith(y + "-") or (y + "-").startswith(x + "-")) else 0.0
+                elif m.real_quick_ratio() >= 0.9 and m.quick_ratio() >= 0.9 and (
+                        difflib.SequenceMatcher(None, x.split("-")[0], y.split("-")[0]).ratio() >= 0.8):
+                    r = m.ratio()       # first words agree too: "Alba Makler" and "Elba Makler" share only the tail
+                else:
+                    r = 0.0
+            else:
                 r = 1.0 if (x in y or y in x) and min(len(x), len(y)) >= 4 else difflib.SequenceMatcher(None, x, y).ratio()
-                best = max(best, r)
+            best = max(best, r)
     return best
 
 
@@ -275,29 +302,52 @@ def _norm(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
+_MOJI = re.compile("[\u00c2-\u00f4][\u0080-\u00bf\u0152\u0153\u0160\u0161\u0178\u017d\u017e\u0192\u02c6\u02dc"
+                   "\u2013\u2014\u2018-\u201a\u201c-\u201e\u2020-\u2022\u2026\u2030\u2039\u203a\u20ac\u2122]+")
+_MARK = re.compile("[\u00c2\u00c3][\u0080-\u00bf]|\u00e2\u20ac")      # "Ã¶", "Â ", "â€": UTF-8 read as Latin-1/cp1252
+
+
+def unmojibake(s):
+    """UTF-8 that was read as Latin-1 or cp1252 ("BÃ¶rse"), repaired run by run, only in a text that shows such markers
+    and only into letters and punctuation such pages hold ("weiß“" stays as it is); anything else stays as it is."""
+    plausible = lambda c: ord(c) < 0x250 or c in "\u02c6\u02dc\u20ac" or 0x2010 <= ord(c) <= 0x2122
+
+    def fix(m):
+        for enc in ("latin-1", "cp1252"):
+            try:
+                r = m.group().encode(enc).decode("utf-8")
+                if all(map(plausible, r)):
+                    return r
+            except UnicodeError:
+                pass
+        return m.group()
+    return _MOJI.sub(fix, s) if _MARK.search(s) else s
+
+
 def ground(quote, text):
-    """'exact' when the normalised quote occurs in the normalised text, 'alnum' when its letters and digits do, else None."""
-    q, t = _norm(quote), _norm(text)
-    if q and q in t:
+    """'exact' when the normalised quote occurs in the normalised text, 'alnum' when its letters and digits do, else None.
+    Garbled and clean spellings match each other ("BÃ¶rse", "Börse"): quotes copied from a page read with the wrong
+    charset stay grounded when the page is re-fetched, and so do clean quotes against a garbled cached text."""
+    pairs = [(q, t) for q in {_norm(quote), _norm(unmojibake(quote))} for t in {_norm(text), _norm(unmojibake(text))}]
+    if any(q and q in t for q, t in pairs):
         return "exact"
-    qa, ta = re.sub(r"[^\w]", "", q), re.sub(r"[^\w]", "", t)
-    if len(qa) >= 12 and qa in ta:
+    alnum = lambda s: re.sub(r"[^\w]", "", s)
+    if any(len(alnum(q)) >= 12 and alnum(q) in alnum(t) for q, t in pairs):
         return "alnum"
     return None
 
 
 def source_text(nodes, source):
-    url = source if source.startswith("http") else nodes.get(resolve(nodes, source) or source, {}).get("props", {}).get("url")
-    if not url:
-        return None
-    p = text_path(url)
-    if os.path.exists(p):
-        return open(p, encoding="utf-8").read()
-    a = archive_path(url)
-    if os.path.exists(a):
-        import gzip
-        return gzip.open(a, "rt", encoding="utf-8").read()
-    return None
+    """The source's cached or archived text; for an Article that absorbed others (merge), the texts of all its urls."""
+    import gzip
+    p = {} if source.startswith("http") else nodes.get(resolve(nodes, source) or source, {}).get("props", {})
+    texts = []
+    for url in [source] if source.startswith("http") else [p.get("url")] + p.get("urls", []):
+        if url and os.path.exists(text_path(url)):
+            texts.append(open(text_path(url), encoding="utf-8").read())
+        elif url and os.path.exists(archive_path(url)):
+            texts.append(gzip.open(archive_path(url), "rt", encoding="utf-8").read())
+    return "\n\n".join(texts) if texts else None
 
 
 ARCHIVE = os.path.join(ROOT, "archive")
@@ -320,7 +370,7 @@ def cmd_upsert(args):
 def upsert(data):
     nodes, edges = load()
     ts = now()
-    created, updated, dupes, problems = [], [], [], []
+    created, updated, dupes, problems, merged = [], [], [], [], []
     for n in data.get("nodes", []):
         if not n.get("type") or not (n.get("name") or n.get("id")):
             problems.append({"node": n, "error": "needs type and name"}); continue
@@ -392,10 +442,13 @@ def upsert(data):
             also.append({k: e[k] for k in ("source", "quote", "note", "confidence") if k in e} | {"observed": ts[:10]}
                         | ({"grounded": grounded} if grounded else {}))
             cur["also"] = also
+            merged.append({"id": eid, "kept_note": cur.get("note"), "your_note": e.get("note")})
             if "confidence" in e:
                 cur["confidence"] = max(cur.get("confidence", 0), e["confidence"])
             keys = ("valid_to", "props")
             grounded = None
+        if "source" in keys and e.get("source") not in (None, cur.get("source")) and not grounded and cur.get("quote"):
+            grounded = "unchecked"      # a new source whose text no quote check has seen
         for k in keys:
             if k in e:
                 cur[k] = e[k]
@@ -418,12 +471,16 @@ def upsert(data):
                 other = ids[k]
                 if other == nid or other not in nodes or nodes[other]["type"] != nodes[nid]["type"]:
                     continue
-                ns = name_sim(nodes[nid], nodes[other])
-                if ns > 0.85 and sims[k] > 0.88:
+                ns = name_sim(nodes[nid], nodes[other], strict=True)
+                if ns >= 0.9 and sims[k] > 0.88:
                     dupes.append({"new": nid, "maybe_same_as": other, "name_similarity": round(ns, 2),
                                   "meaning_similarity": round(float(sims[k]), 3)})
     return {"created": created, "updated": updated, "embedded": embedded,
-            "possible_duplicates": dupes, "problems": problems}
+            "possible_duplicates": dupes, "problems": problems,
+            **({"merged_into_existing": merged, "merged_hint": "these landed under `also` of a known fact (same src, rel, dst, "
+                "valid_from): its note stands, the dossier shows yours. A figure for another date or period is its own fact: "
+                "give it that valid_from"}
+               if merged else {})}
 
 
 def cmd_search(args):
@@ -592,15 +649,26 @@ def cmd_merge(args):
     k, d = nodes[keep], nodes.pop(drop)
     k["aliases"] = sorted(set(k.get("aliases", [])) | set(d.get("aliases", [])) | {d.get("name", "")} - {k["name"], ""})
     k.setdefault("props", {}).update({x: y for x, y in d.get("props", {}).items() if x not in k["props"]})
+    urls = {d.get("props", {}).get("url"), *d.get("props", {}).get("urls", [])} - {k["props"].get("url"), None}
+    if urls:          # a merged Article's url stays: quotes copied from its text still ground (source_text)
+        k["props"]["urls"] = sorted(set(k["props"].get("urls", [])) | urls)
     k["sources"] = sorted(set(k.get("sources", [])) | set(d.get("sources", [])))
     if not k.get("text") and d.get("text"):
         k["text"] = d["text"]
     for x in [x for x, e in edges.items() if e["rel"] == "NOT_SAME_AS" and {e["src"], e["dst"]} == {keep, drop}]:
         edges.pop(x)                                   # found the same after all: the old verdict would become a self-edge
-    for e in edges.values():
-        if e["src"] == drop: e["src"] = keep
-        if e["dst"] == drop: e["dst"] = keep
-    k["updated"] = now()
+    ts = now()
+    for e in edges.values():      # every field naming the dropped id; a rewritten fact is newer (`updated`)
+        for x, f in [(e, "src"), (e, "dst"), (e, "source"), (e, "invalidated_by")] + [(a, "source") for a in e.get("also", [])]:
+            if x.get(f) == drop:
+                x[f] = keep; e["updated"] = ts
+    for n in nodes.values():      # node fields holding ids: props (an Article's source, a Signal's confirmed_by), sources
+        p = n.get("props", {})
+        for x in [x for x, v in p.items() if v == drop or isinstance(v, list) and drop in v]:
+            p[x] = keep if p[x] == drop else [keep if v == drop else v for v in p[x]]; n["updated"] = ts
+        if drop in n.get("sources", []):
+            n["sources"] = sorted(set(n["sources"]) - {drop} | {keep}); n["updated"] = ts
+    k["updated"] = ts
     save(nodes, edges)
     sync_vecs(nodes, edges)
     out({"merged": drop, "into": keep})
@@ -783,7 +851,7 @@ def cmd_dossier(args):
         v["published"] = published(e, nodes)
         v["origins"] = sorted(origins_of(e, nodes))
         if e.get("backfill"): v["backfill"] = True
-        if e.get("also"): v["corroborated_by"] = [a.get("source") for a in e["also"]]
+        if e.get("also"): v["also"] = [{k: str(a[k])[:200] for k in ("source", "note", "quote") if a.get(k)} for a in e["also"]]
         if v.get("quote"): v["quote"] = v["quote"][:200]
         for k in ("src", "dst", "rel", "grounded", "created"): v.pop(k, None)
         return v
@@ -910,18 +978,24 @@ def cmd_audit(args):
     weak = [edge_view(e, nodes) for e in edges.values()
             if e["rel"] not in ("FROM", "CITES", "CONTAINS", "ABOUT", "PREFERS")
             and not e.get("verified") and (float(e.get("confidence") or 1) < 0.8 or e.get("grounded") == "unchecked")]
-    # duplicate candidates among entities (name similarity), most similar first; a pair joined by any fact (a group
-    # and its subsidiary) or by NOT_SAME_AS (checked in an earlier pass: two entities) is known to be two
+    # duplicate candidates among entities (strict name similarity), most similar first; group pairs: one organisation's
+    # name is part of the other's ("Acme" and "Acme Re": a brand and its group, rarely one entity), most facts first. A pair joined by any
+    # fact (PARENT_OF) or by NOT_SAME_AS (checked in an earlier pass: two entities) is known to be two
     ents = [n for n in nodes.values() if n["type"] in ACTOR_TYPES]
     linked = {frozenset((e["src"], e["dst"])) for e in edges.values()}
-    dup = []
+    facts = collections.Counter(x for e in edges.values() for x in (e["src"], e["dst"]))
+    dup, group = [], []
     for i, a in enumerate(ents):
         for b in ents[i + 1:]:
             if a["type"] == b["type"] and frozenset((a["id"], b["id"])) not in linked:
-                s = name_sim(a, b)
-                if s >= 0.85:
+                s = name_sim(a, b, strict=True)
+                if s >= 0.9:
                     dup.append({"a": a["id"], "b": b["id"], "name_similarity": round(s, 2)})
+                elif a["type"] != "Person" and any(part_of(x, y) for s in (True, False)
+                                                       for x in names(a, s) for y in names(b, s)):
+                    group.append({"a": a["id"], "b": b["id"], "facts": facts[a["id"]] + facts[b["id"]]})
     dup.sort(key=lambda d: -d["name_similarity"])
+    group.sort(key=lambda d: -d["facts"])
     # roles that may be stale: open-ended role facts older than 18 months, unless confirmed current (`current_on`) in the last
     # six months; `verified` says the source was re-read, not that the role still holds
     roles = {"CEO_OF", "MANAGING_DIRECTOR_OF", "WORKS_AT", "WORKED_AT", "JOINED", "PARTNER_AT", "HEAD_OF"}
@@ -948,6 +1022,9 @@ def cmd_audit(args):
     orphans = [brief(n) for n in nodes.values() if n["type"] in ACTOR_TYPES + ("Topic",)
                and not any(n["id"] in (e["src"], e["dst"]) for e in edges.values())]
     thin = [brief(n) for n in ents if not n.get("text")]
+    # facts whose source (or an `also` source) names a node id that no longer exists, e.g. an Article merged away
+    dangling = [edge_view(e, nodes) for e in edges.values() if any(
+        s and re.match(r"[a-z]+:(?!//)", str(s)) and s not in nodes for s in [e.get("source")] + [a.get("source") for a in e.get("also", [])])]
     month = str(today - datetime.timedelta(days=30))       # articles: read in runs (not backfill) in the last 30 days
     read = collections.Counter(n.get("props", {}).get("source") for n in nodes.values()
                                if n["type"] == "Article" and not n.get("backfill") and n.get("created", "") >= month)
@@ -958,10 +1035,11 @@ def cmd_audit(args):
     rules = [{"id": n["id"], "name": n["name"], "text": n.get("text"), "created": n.get("created")}
              for n in nodes.values() if n["type"] == "Rule"]
     out({"verify_weak_facts": weak[:60], "weak_count": len(weak), "possible_duplicates": dup[:40], "duplicates_count": len(dup),
+         "unlinked_group_pairs": group[:30], "group_pairs_count": len(group),
          "possibly_stale_roles": stale[:40],
          "stale_roles_hint": "a role you confirm as still current: upsert {\"edges\": [{\"id\", \"src\", \"rel\", \"dst\" as listed, "
                              f"\"current_on\": \"{today}\"}}]}}; audit skips it for 183 days", "conflicts": conflicts[:20], "orphans": orphans[:40],
-         "entities_without_summary": thin[:60], "sources": src_fail, "rules": rules})
+         "entities_without_summary": thin[:60], "dangling_sources": dangling[:40], "dangling_count": len(dangling), "sources": src_fail, "rules": rules})
 
 
 def cmd_invalidate(args):
@@ -1140,7 +1218,7 @@ def cmd_help(args):
         "brief": "START HERE: compact start-up view (reader, rules, open theses, facts since last issue, key entities)",
         "dossier <id|name>... [--days 90] [--q \"archive question\"] [--no-passages]": "before writing a story: its entities' recent and older facts with outlets, conflicts, invalidations, linked theses, earlier stories, signals, archive passages",
         "patterns [--days 14] [--min 3] [--all]": "story candidates from the memory: entities with several new facts from >= 2 independent outlets, not printed in the last 7 days",
-        "audit": "work list for the Saturday dreaming pass (weak facts, duplicates, stale roles, conflicts, orphans)",
+        "audit": "work list for the Saturday dreaming pass (weak facts, duplicates, group pairs, stale roles, conflicts, orphans)",
         "stats": "counts by node type and relation",
         "search \"text\" [--type T] [--k N] [--edges]": "find by meaning and name; --edges includes facts",
         "get <id|name>": "a node with its facts",
