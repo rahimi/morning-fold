@@ -338,17 +338,16 @@ def ground(quote, text):
 
 
 def source_text(nodes, source):
-    url = source if source.startswith("http") else nodes.get(resolve(nodes, source) or source, {}).get("props", {}).get("url")
-    if not url:
-        return None
-    p = text_path(url)
-    if os.path.exists(p):
-        return open(p, encoding="utf-8").read()
-    a = archive_path(url)
-    if os.path.exists(a):
-        import gzip
-        return gzip.open(a, "rt", encoding="utf-8").read()
-    return None
+    """The source's cached or archived text; for an Article that absorbed others (merge), the texts of all its urls."""
+    import gzip
+    p = {} if source.startswith("http") else nodes.get(resolve(nodes, source) or source, {}).get("props", {})
+    texts = []
+    for url in [source] if source.startswith("http") else [p.get("url")] + p.get("urls", []):
+        if url and os.path.exists(text_path(url)):
+            texts.append(open(text_path(url), encoding="utf-8").read())
+        elif url and os.path.exists(archive_path(url)):
+            texts.append(gzip.open(archive_path(url), "rt", encoding="utf-8").read())
+    return "\n\n".join(texts) if texts else None
 
 
 ARCHIVE = os.path.join(ROOT, "archive")
@@ -448,6 +447,8 @@ def upsert(data):
                 cur["confidence"] = max(cur.get("confidence", 0), e["confidence"])
             keys = ("valid_to", "props")
             grounded = None
+        if "source" in keys and e.get("source") not in (None, cur.get("source")) and not grounded and cur.get("quote"):
+            grounded = "unchecked"      # a new source whose text no quote check has seen
         for k in keys:
             if k in e:
                 cur[k] = e[k]
@@ -648,15 +649,26 @@ def cmd_merge(args):
     k, d = nodes[keep], nodes.pop(drop)
     k["aliases"] = sorted(set(k.get("aliases", [])) | set(d.get("aliases", [])) | {d.get("name", "")} - {k["name"], ""})
     k.setdefault("props", {}).update({x: y for x, y in d.get("props", {}).items() if x not in k["props"]})
+    urls = {d.get("props", {}).get("url"), *d.get("props", {}).get("urls", [])} - {k["props"].get("url"), None}
+    if urls:          # a merged Article's url stays: quotes copied from its text still ground (source_text)
+        k["props"]["urls"] = sorted(set(k["props"].get("urls", [])) | urls)
     k["sources"] = sorted(set(k.get("sources", [])) | set(d.get("sources", [])))
     if not k.get("text") and d.get("text"):
         k["text"] = d["text"]
     for x in [x for x, e in edges.items() if e["rel"] == "NOT_SAME_AS" and {e["src"], e["dst"]} == {keep, drop}]:
         edges.pop(x)                                   # found the same after all: the old verdict would become a self-edge
-    for e in edges.values():
-        if e["src"] == drop: e["src"] = keep
-        if e["dst"] == drop: e["dst"] = keep
-    k["updated"] = now()
+    ts = now()
+    for e in edges.values():      # every field naming the dropped id; a rewritten fact is newer (`updated`)
+        for x, f in [(e, "src"), (e, "dst"), (e, "source"), (e, "invalidated_by")] + [(a, "source") for a in e.get("also", [])]:
+            if x.get(f) == drop:
+                x[f] = keep; e["updated"] = ts
+    for n in nodes.values():      # node fields holding ids: props (an Article's source, a Signal's confirmed_by), sources
+        p = n.get("props", {})
+        for x in [x for x, v in p.items() if v == drop or isinstance(v, list) and drop in v]:
+            p[x] = keep if p[x] == drop else [keep if v == drop else v for v in p[x]]; n["updated"] = ts
+        if drop in n.get("sources", []):
+            n["sources"] = sorted(set(n["sources"]) - {drop} | {keep}); n["updated"] = ts
+    k["updated"] = ts
     save(nodes, edges)
     sync_vecs(nodes, edges)
     out({"merged": drop, "into": keep})
@@ -1010,6 +1022,9 @@ def cmd_audit(args):
     orphans = [brief(n) for n in nodes.values() if n["type"] in ACTOR_TYPES + ("Topic",)
                and not any(n["id"] in (e["src"], e["dst"]) for e in edges.values())]
     thin = [brief(n) for n in ents if not n.get("text")]
+    # facts whose source (or an `also` source) names a node id that no longer exists, e.g. an Article merged away
+    dangling = [edge_view(e, nodes) for e in edges.values() if any(
+        s and re.match(r"[a-z]+:(?!//)", str(s)) and s not in nodes for s in [e.get("source")] + [a.get("source") for a in e.get("also", [])])]
     month = str(today - datetime.timedelta(days=30))       # articles: read in runs (not backfill) in the last 30 days
     read = collections.Counter(n.get("props", {}).get("source") for n in nodes.values()
                                if n["type"] == "Article" and not n.get("backfill") and n.get("created", "") >= month)
@@ -1024,7 +1039,7 @@ def cmd_audit(args):
          "possibly_stale_roles": stale[:40],
          "stale_roles_hint": "a role you confirm as still current: upsert {\"edges\": [{\"id\", \"src\", \"rel\", \"dst\" as listed, "
                              f"\"current_on\": \"{today}\"}}]}}; audit skips it for 183 days", "conflicts": conflicts[:20], "orphans": orphans[:40],
-         "entities_without_summary": thin[:60], "sources": src_fail, "rules": rules})
+         "entities_without_summary": thin[:60], "dangling_sources": dangling[:40], "dangling_count": len(dangling), "sources": src_fail, "rules": rules})
 
 
 def cmd_invalidate(args):

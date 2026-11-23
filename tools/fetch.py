@@ -459,7 +459,7 @@ def cmd_sources(args):
         top = int(args[args.index("--top") + 1])
     os.makedirs(outdir, exist_ok=True)
     nodes, edges = graph.load()
-    known = {n.get("props", {}).get("url") for n in nodes.values() if n["type"] == "Article"}
+    known = {u for n in nodes.values() if n["type"] == "Article" for u in [n.get("props", {}).get("url"), *n.get("props", {}).get("urls", [])]}
     known |= {episode_key(n["props"].get("source"), n["props"].get("published"), t) for n in nodes.values()
               if n["type"] == "Article" and n.get("props", {}).get("kind") == "podcast" for t in (n["name"], n["name"].split(": ", 1)[-1])}
     today = datetime.date.today()
