@@ -66,7 +66,8 @@ You need: a Claude plan with Claude Code cloud sessions (Pro, Max, Team or Enter
 | `SETUP.md` | how Claude sets up a new reader's instance |
 | `RUN.md` | the run method every scheduled run follows (issue, week-ahead, dreaming) |
 | `BACKFILL.md` | one-off job that gives a new paper its history |
-| `FEEDBACK.md` | how runs file engine problems on GitHub (opt-in, `engine_feedback`) |
+| `FEEDBACK.md` | how runs report engine problems to the maintainer (opt-in, `engine_feedback`) |
+| `relay/` | the maintainer's feedback relay (a Cloudflare Worker) |
 | `CHANGELOG.md` | what each release changes in a reader's paper; instances take the latest release tag (`engine_updates`) |
 | `RELEASING.md` | how the maintainer cuts a release |
 | `tools/` | `graph.py` (memory), `fetch.py` (reading, ranking, transcripts), `passages.py` (archive search), `backfill.py`, `check_issue.py`, `site.py`, `sync_reply.py`, `instance.py`, `get_model.py`, `paths.py` |
@@ -82,6 +83,16 @@ Try the tools on the fictional instance:
 python3 tools/get_model.py
 MORNING_FOLD_HOME=examples/instance python3 tools/graph.py brief
 MORNING_FOLD_HOME=examples/instance python3 tools/instance.py check
+```
+
+## Instance on 0.1.0? Update once by hand
+
+0.1.0 has no updater. From the instance root, move the engine to the latest release and commit the pointer; the dreaming run keeps it current from then on:
+
+```bash
+git -C engine fetch --tags
+git -C engine checkout "$(git -C engine tag --list 'v*' --sort=-v:refname | grep -v -- -rc | head -1)"
+git add engine && git commit -m "Engine v0.1.0 → $(git -C engine describe --tags)" && git push
 ```
 
 ## Licence
