@@ -21,10 +21,15 @@ Tests (no network): `cd relay && node --test`.
    **Issues: read and write**, nothing else. Note its App ID; generate a private key (a `.pem` download).
 3. Install the app on the triage repository only. The installation id is the number at the end of the
    installation's settings URL.
-4. Convert the key to PKCS#8 (WebCrypto reads only that):
-   `openssl pkcs8 -topk8 -nocrypt -in app.pem -out app-pkcs8.pem`.
-5. With a Cloudflare account and `npx wrangler login`: `npx wrangler kv namespace create RATE`, then fill
-   `wrangler.toml` (App ID, installation id, `owner/repo`, the KV id).
-6. `npx wrangler secret put APP_PRIVATE_KEY` and paste the PKCS#8 key yourself; delete both `.pem` files after.
-7. `npx wrangler deploy`. Put the printed URL plus `/v1/feedback` into the `feedback_relay` default in
-   `tools/paths.py` and release it.
+Keep everything you fill in or download **outside this repository** (it is public): the key files and your
+filled `wrangler.toml` go in a private folder, e.g. `~/.config/morning-fold-relay/`.
+4. Convert the key to PKCS#8 (WebCrypto reads only that), writing it outside the repository:
+   `openssl pkcs8 -topk8 -nocrypt -in ~/Downloads/<app>.private-key.pem -out ~/.config/morning-fold-relay/app-pkcs8.pem`.
+5. Copy `wrangler.toml` to that folder, set `main` to the absolute path of `worker.mjs` here, and fill the App ID,
+   installation id and `owner/repo`. With a Cloudflare account, from that folder: `npx wrangler login`, then
+   `npx wrangler kv namespace create RATE` and put the printed id into the copy.
+6. From that folder: `npx wrangler secret put APP_PRIVATE_KEY -c wrangler.toml < app-pkcs8.pem`, then delete both
+   `.pem` files. (Or paste the key in the dashboard: the Worker → Settings → Variables and Secrets → Secret.)
+7. `npx wrangler deploy -c wrangler.toml`. Check the printed URL: a `workers.dev` address contains your account's
+   subdomain, which is often your name; change it (dashboard, workers.dev subdomain) or add a custom domain before
+   you publish the URL. Put it plus `/v1/feedback` into the `feedback_relay` default in `tools/paths.py` and release it.

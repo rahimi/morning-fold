@@ -24,3 +24,7 @@ examples/instance/graph/vectors.npz
 examples/instance/graph/.lock
 /.work/
 examples/instance/.work/
+
+# Relay deployment: keys and wrangler state never belong in this public repository.
+*.pem
+.wrangler/
