@@ -36,6 +36,23 @@
       self-tests and on a failure returns to the previous commit (undo your changes then: git checkout -- <files>).
       It never commits: on success, commit the engine pointer and the changes as "Engine <current> → <target>".
       A release whose pointer commit the instance reverted (git revert --no-edit) is never taken again.
+
+  python3 engine/tools/instance.py sync [--push] [--prune]
+      Brings in what other runs pushed elsewhere (plain git, the remote origin; none: a no-op). Fetches every
+      branch (unshallows a shallow clone), then merges what HEAD lacks: origin's main branch first, then every
+      session branch (claude/<name>-<suffix>, <main>-<suffix>; suffix: six lower-case letters and digits) whose
+      commits since the merge base touch runs/ or graph/, oldest first; other branches are listed as skipped.
+      Refuses (reported, exit 0) while tracked files have changes. Conflicts: graph/*.jsonl three-way by record id
+      (changed on both sides: the later updated, else created, wins; a tie, the newer branch; changed on one side
+      and deleted on the other: kept and listed); data/first_seen.json by url; graph/vectors.npz, index/ and
+      archive/ keep ours (vectors then embed the merged records); the engine pointer the newer engine (then
+      reported as engine_changed and checked out). Any other conflict (reader.md, sources.json, an issue ...)
+      aborts that merge only and is listed under conflicts. --push: push HEAD to the main branch (if main moved:
+      sync again, retry once) and to the current branch when that is another one (a session branch). --prune:
+      after that push, delete the session branches main holds whose suffix has a digit, never the current one. An
+      edge left naming a node the merge removed (src, dst, source) takes the other side's value (conflicts:
+      repointed) or is listed (dangling_endpoints). An unexpected error aborts the merge in progress (error).
+      Prints JSON: merged, skipped, conflicts, pushed, pruned. Always exits 0.
 """
 import collections
 import datetime
@@ -412,12 +429,204 @@ def cmd_update(args):
     self_test(head, res)
 
 
+def stage(n, p):
+    """A conflicted file's text at merge stage n (1 base, 2 ours, 3 theirs), "" when that side has none."""
+    return git("-C", paths.HOME, "show", f":{n}:{p}") or ""
+
+
+def join_jsonl(p, kept):
+    """Three-way join of a graph file by record id against the merge base. Changed on both sides: the later
+    updated (else created) wins, a tie the side with the newer last non-merge commit. Changed on one side and
+    deleted on the other: kept, its id added to `kept`."""
+    b, o, t = ({json.loads(x)["id"]: x for x in stage(n, p).splitlines() if x.strip()} for n in (1, 2, 3))
+    tips = [int(git("-C", paths.HOME, "log", "-1", "--no-merges", "--format=%ct", r) or 0) for r in ("HEAD", "MERGE_HEAD")]
+    stamp = lambda v, k: (json.loads(v).get("updated") or json.loads(v).get("created") or "", tips[k])
+    out = {}
+    for i in set(o) | set(t):
+        x, y = o.get(i), t.get(i)
+        if x == y or y == b.get(i):
+            r = x
+        elif x == b.get(i):
+            r = y
+        elif x is None or y is None:
+            r = x or y
+            kept.append(i)
+        else:
+            r = y if stamp(y, 1) > stamp(x, 0) else x
+        if r:
+            out[i] = r
+    return "".join(out[i] + "\n" for i in sorted(out))
+
+
+def join_first_seen(p):
+    """Union by url: "baseline" is the earliest first_seen; the latest last_seen; fetch.py's 60-day cut after."""
+    o, t = (json.loads(stage(n, p) or "{}") for n in (2, 3))
+    for u, v in t.items():
+        w = o.get(u)
+        o[u] = v if not w else [min(w[0], v[0], key=lambda d: (d != "baseline", d)), max(w[1], v[1]),
+                                *(w if w[1] >= v[1] else v)[2:]]
+    cut = str(datetime.date.today() - datetime.timedelta(days=60))
+    return json.dumps({u: v for u, v in o.items() if v[1] >= cut}, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def newer_engine(o, t):
+    """Both sides moved the engine pointer: the descendant, else the higher release tag, else ours."""
+    eg = lambda *a: git("-C", os.path.join(paths.HOME, "engine"), *a)
+    tag = lambda c: max((eg("tag", "--points-at", c) or "").split() or [eg("describe", "--tags", "--abbrev=0", c) or ""],
+                        key=lambda x: version(x) or ())
+    return t if eg("merge-base", "--is-ancestor", o, t) is not None or (version(tag(t)) or ()) > (version(tag(o)) or ()) else o
+
+
+def endpoints(ref, res):
+    """Edges the merge left naming a node it removed (src/dst, source, also[].source): take that field from the side
+    whose value still names existing nodes."""
+    load = lambda text: {json.loads(x)["id"]: x for x in text.splitlines() if x.strip()}
+    cur = lambda f: open(os.path.join(paths.HOME, "graph", f), encoding="utf-8").read()
+    nodes, head_nodes = set(load(cur("nodes.jsonl"))), set(load(git("-C", paths.HOME, "show", "HEAD:graph/nodes.jsonl") or ""))
+    sides = [{i: json.loads(x) for i, x in load(git("-C", paths.HOME, "show", f"{r}:graph/edges.jsonl") or "").items()}
+             for r in ("HEAD", "MERGE_HEAD")]
+    refs = lambda e, k: {a.get("source") for a in e.get("also", [])} - {None} if k == ("also",) else {e.get(x) for x in k} - {None}
+    edges, fixed, lost = load(cur("edges.jsonl")), [], []
+    for i, x in edges.items():
+        e, h, new = json.loads(x), sides[0].get(i), None
+        for k in (("src", "dst"), ("source",), ("also",)):
+            if refs(e, k) <= nodes or (h and not refs(h, k) <= head_nodes):
+                continue        # whole, or already dangling before this merge
+            alt = next((s[i] for s in sides if i in s and refs(s[i], k) <= nodes), None)
+            if alt:
+                new = {**(new or e), **{f: alt[f] for f in k if f in alt}}
+            else:
+                lost.append(i)
+        if new:
+            edges[i] = json.dumps(new, ensure_ascii=False, sort_keys=True)
+            fixed.append(i)
+    if fixed:
+        open(os.path.join(paths.HOME, "graph", "edges.jsonl"), "w", encoding="utf-8").write(
+            "".join(edges[i] + "\n" for i in sorted(edges)))
+        git("-C", paths.HOME, "add", "graph/edges.jsonl")
+        res["conflicts"].append({"branch": ref, "repointed": fixed, "why": "a node it names was removed by the other side"})
+    res.setdefault("dangling_endpoints", []).extend(lost) if lost else None
+
+
+def merge(ref, res):
+    """Merge one ref into HEAD: known conflicts are resolved, any other aborts this merge only. True when merged."""
+    g = lambda *a: git("-C", paths.HOME, *a)
+    b = ref.split("/", 1)[1]
+    nxt = f"git merge {ref}, resolve, git commit; or drop it: git push origin --delete {b}"
+    started = g("merge", "-q", "--no-commit", ref) is not None
+    if g("rev-parse", "-q", "--verify", "MERGE_HEAD") is None:     # a fast-forward, or the merge never started
+        return started or res["conflicts"].append({"branch": ref, "paths": ["(merge did not start)"], "next": nxt})
+    try:
+        todo, kept = (g("diff", "--name-only", "--diff-filter=U") or "").split(), []
+        bad = [p for p in todo if not re.fullmatch(r"graph/[^/]+\.jsonl|data/first_seen\.json|engine|graph/vectors\.npz"
+                                                   r"|(index|archive)/.+", p)]
+        for p in [] if bad else todo:
+            if p == "engine":
+                o, t = (re.search(r"160000 (\w+) %s\t" % n, g("ls-files", "-u", "engine")).group(1) for n in "23")
+                g("update-index", "--cacheinfo", f"160000,{newer_engine(o, t)},engine")
+                continue
+            if p.endswith(".jsonl") or p == "data/first_seen.json":
+                open(os.path.join(paths.HOME, p), "w", encoding="utf-8").write(
+                    join_jsonl(p, kept) if p.endswith(".jsonl") else join_first_seen(p))
+            elif g("checkout", "--ours", "--", p) is None:
+                g("checkout", "--theirs", "--", p)      # only their side has it
+            elif p.startswith("archive/") and p.endswith(".gz"):     # the same url archived twice: this run can ground on both
+                import gzip
+                import graph
+                os.makedirs(graph.TEXT_CACHE, exist_ok=True)
+                texts = [gzip.decompress(subprocess.run(["git", "-C", paths.HOME, "show", f":{n}:{p}"], capture_output=True).stdout)
+                         .decode("utf-8", "replace") for n in (2, 3)]
+                open(os.path.join(graph.TEXT_CACHE, os.path.basename(p)[:-3]), "w", encoding="utf-8").write(
+                    texts[0] if texts[0] == texts[1] else "\n\n".join(texts))
+            res["vectors"] |= p == "graph/vectors.npz"
+            g("add", "--", p)
+        if not bad and os.path.exists(os.path.join(paths.HOME, "graph", "edges.jsonl")):
+            endpoints(ref, res)
+    except Exception as e:      # never leave a half-merge for the run's next `git add -A && git commit`
+        bad = [f"(error: {type(e).__name__}: {e})"]
+    if bad or g("commit", "-q", "--no-edit") is None:
+        g("merge", "--abort")
+        res["conflicts"].append({"branch": ref, "paths": bad or ["(commit failed)"], "next": nxt})
+        return False
+    if kept:
+        res["conflicts"].append({"branch": ref, "kept": sorted(kept), "why": "changed on one side, deleted on the other"})
+    return True
+
+
+def cmd_sync(args):
+    g = lambda *a: git("-C", paths.HOME, *a)
+    res = {"merged": [], "skipped": [], "conflicts": [], "pushed": [], "pruned": [], "vectors": False}
+    if g("remote", "get-url", "origin") is None:
+        report({**res, "remote": None})
+    main = (g("symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD") or "origin/main").split("/", 1)[1]
+    cur = g("branch", "--show-current")
+    branches = lambda: [r for r in (g("for-each-ref", "--format=%(refname:short)", "--sort=committerdate",
+                                      "refs/remotes/origin/") or "").split() if r.startswith("origin/") and r != "origin/HEAD"]
+    has = lambda ref: g("merge-base", "--is-ancestor", ref, "HEAD") is not None
+    session = lambda b, digit="": re.fullmatch(r"(claude/[\w.-]+|%s)-%s[a-z0-9]{6}" % (re.escape(main), digit), b)
+
+    def pull():
+        if g("status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all"):
+            return res["conflicts"].append({"branch": None, "paths": ["(working tree has changes: commit first)"]})
+        engine0 = g("rev-parse", "HEAD:engine")
+        if g("rev-parse", "--is-shallow-repository") == "true":
+            res["unshallowed"] = g("fetch", "-q", "--unshallow", "origin") is not None
+        if g("fetch", "-q", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*") is None:
+            res["conflicts"].append({"branch": None, "paths": ["(fetch failed)"]})
+        import fcntl
+        import graph
+        with open(os.path.join(graph.GDIR, ".lock"), "w") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)          # no reporter writes the graph while it is merged
+            for ref in sorted((r for r in branches() if not has(r)), key=lambda r: r != "origin/" + main):   # main first
+                base = g("merge-base", "HEAD", ref)
+                why = None if ref == "origin/" + main else "not named like a session branch" \
+                    if not session(ref.split("/", 1)[1]) else None if base and \
+                    g("diff", "--name-only", base, ref, "--", "runs/", "graph/") else "no runs/ or graph/ changes"
+                if why:
+                    res["skipped"].append({"branch": ref, "why": why})     # never merged: the reader's own
+                elif merge(ref, res):
+                    res["merged"].append(ref)
+            if res["vectors"] is True:              # ours were kept: embed what the other side added or changed
+                try:
+                    graph.sync_vecs(*graph.load())
+                    res["vectors"] = "updated"
+                except Exception as e:
+                    res["vectors"] = f"not updated ({e}): graph.py reindex"
+                g("add", "graph/vectors.npz")
+                g("commit", "-q", "-m", "Sync: vectors of the merged records")
+        if g("rev-parse", "HEAD:engine") != engine0:
+            res["engine_changed"] = True
+            if os.path.exists(os.path.join(paths.HOME, "engine", ".git")):
+                g("submodule", "update", "-q", "--init", "engine")   # else the next `git add -A` puts the old pointer back
+
+    try:
+        pull()
+        if "--push" in args:
+            push = lambda b: g("push", "-q", "origin", "HEAD:refs/heads/" + b) is not None and not res["pushed"].append(b)
+            if not push(main) and not (pull() or push(main)):     # main moved meanwhile: sync again, retry once
+                res["conflicts"].append({"branch": main, "paths": ["(push rejected)"]})
+            if cur and cur != main:
+                push(cur)
+        if "--prune" in args and main in res["pushed"]:      # the platform's session branches that main now holds
+            for ref in branches():
+                b = ref.split("/", 1)[1]
+                if b != cur and session(b, r"(?=[a-z]*\d)") and has(ref) \
+                        and g("push", "-q", "origin", "--delete", b) is not None:
+                    res["pruned"].append(b)
+    except Exception as e:      # never exit non-zero, never leave a half-merge behind
+        if g("rev-parse", "-q", "--verify", "MERGE_HEAD") is not None:
+            g("merge", "--abort")
+        res["error"] = f"{type(e).__name__}: {e}"
+    report(res)
+
+
 if __name__ == "__main__":
-    cmds = {"init": cmd_init, "check": cmd_check, "leakcheck": cmd_leakcheck, "update": cmd_update}
+    cmds = {"init": cmd_init, "check": cmd_check, "leakcheck": cmd_leakcheck, "update": cmd_update, "sync": cmd_sync}
     c, args = (sys.argv[1] if len(sys.argv) > 1 else ""), sys.argv[2:]
     if c in ("", "-h", "--help") or {"-h", "--help"} & set(args):
         print(__doc__); sys.exit(0)
-    bad = [a for a in args if a.startswith("-") and a != "-" and not (c == "update" and a in ("--check", "--verify"))]
+    bad = [a for a in args if a.startswith("-") and a != "-" and not (c == "update" and a in ("--check", "--verify")) \
+           and not (c == "sync" and a in ("--push", "--prune"))]
     if c not in cmds or bad:     # nothing runs on a typo: `init --help` would lay out an instance in ./--help
         print(f"{__doc__}\nunknown {'flag ' + bad[0] if c in cmds else 'command ' + c}", file=sys.stderr); sys.exit(2)
     cmds[c](args)
