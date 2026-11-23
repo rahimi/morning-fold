@@ -94,6 +94,17 @@ def visible_len(html):
     return len(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", t)).strip())
 
 
+LOREM = {"lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit", "sed", "eiusmod", "tempor",
+         "incididunt", "ut", "labore", "et", "dolore", "magna", "aliqua"}
+
+
+def placeholder(text):
+    """A site's placeholder body (lorem ipsum), not the article: both markers, and twice or a fifth of the words."""
+    t = text.lower()
+    w = re.findall(r"[a-z]+", t)
+    return "dolor sit amet" in t and (t.count("lorem ipsum") >= 2 or "lorem ipsum" in t and sum(x in LOREM for x in w) > 0.2 * len(w))
+
+
 def blocked(r):
     title = (re.search(r"(?is)<title[^>]*>(.*?)</title>", r.text or "") or [None, ""])[1]
     ctype = r.headers.get("content-type", "") if hasattr(r, "headers") else ""
@@ -602,9 +613,17 @@ def cmd_article(args):
                                 "documents": docs, "text": ""}
                     return {"url": u, "ok": False, "error": "no main text found"}
             text = d.get("text") or ""
+            if placeholder(text) and not r.browser and (b := render(u)) is not None and b.status_code < 400:
+                j = trafilatura.extract(b.text, url=b.url, output_format="json", with_metadata=True, include_comments=False,
+                                        favor_recall=True)      # a placeholder for plain HTTP: the browser's page
+                r, d = b, json.loads(j) if j else {}
+                text = d.get("text") or ""
             if not text.strip():
                 return {"url": u, "ok": False, "error": "no text found"}
             text = graph.unmojibake(text)      # a page garbled at its source: reporters copy quotes from this text
+            if placeholder(text):
+                return {"url": u, "ok": False, "browser": r.browser, "error": "not readable: the page holds placeholder text "
+                        "(lorem ipsum), not the article; not cached. Try again in a later run or read another report"}
             store_text([u, r.url], text)    # cache under both the asked and the final URL, and archive
             return {"url": r.url, "asked": u, "ok": True, "browser": r.browser, "title": d.get("title"), "date": d.get("date"),
                     "author": d.get("author"), "sitename": d.get("sitename"), "chars": len(text),
