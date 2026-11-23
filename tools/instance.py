@@ -652,8 +652,12 @@ def cmd_sync(args):
         if "--prune" in args and main in res["pushed"]:      # the platform's session branches that main now holds
             for ref in branches():
                 b = ref.split("/", 1)[1]
-                if b != cur and session(b, r"(?=[a-z]*\d)") and has(ref) \
-                        and g("push", "-q", "origin", "--delete", b) is not None:
+                if b != cur and session(b, r"(?=[a-z]*\d)") and has(ref):
+                    r = subprocess.run(["git", "-C", paths.HOME, "push", "-q", "origin", "--delete", b],
+                                       capture_output=True, text=True)
+                    if r.returncode:      # a remote that refuses deletions refuses them all: say why, stop trying
+                        res["prune_failed"] = {"branch": b, "error": (r.stderr.strip().splitlines() or ["?"])[-1][:300]}
+                        break
                     res["pruned"].append(b)
     except Exception as e:      # never exit non-zero, never leave a half-merge behind
         if g("rev-parse", "-q", "--verify", "MERGE_HEAD") is not None:
