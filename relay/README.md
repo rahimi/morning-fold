@@ -1,5 +1,9 @@
 # Feedback relay
 
+**Readers and their instances need nothing from this folder**: their runs send to the relay the engine names
+(`feedback_relay` in `tools/paths.py`), and setup only asks whether to send. This folder is for whoever runs
+that relay, the maintainer, once (or someone running a fork with a relay of their own).
+
 A Cloudflare Worker that lets a paper's dreaming run report an engine problem without a GitHub login
 (`engine_feedback: relay`, see `../FEEDBACK.md`). The run sends generic, leak-checked text to
 `POST /v1/feedback` `{instance, engine, title, body}`; the relay checks sizes and daily limits (3 per
