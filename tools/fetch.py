@@ -9,7 +9,8 @@ Needs network access in the task's cloud environment ("Full", or "Custom" with t
       scores every item for relevance to this reader (embeddings against the beats, open theses and known
       entities, plus a boost when a known entity is named) and prints the top items plus per-source status.
       The full ranked list is in <work>/items.json. Dated items more than a day in the future (events, deadlines) are
-      not news: they are listed under `upcoming`, not ranked. --no-baseline: a source read for the first time
+      not news: they are listed under `upcoming`, not ranked. Episodes of the reader's own shows (podcast group heard)
+      are ranked among themselves under `heard`, never in `top`. --no-baseline: a source read for the first time
       keeps its undated links as today's news instead of setting them aside as backlog (first issue only).
       Each Source read gets last_read (today) and failures (days failed in a row, 0 on success) in the graph.
 
@@ -28,7 +29,7 @@ Needs network access in the task's cloud environment ("Full", or "Custom" with t
       the page (or PDF) with `article` and let the model pick the dates.
 
   python3 tools/fetch.py transcribe <episode url> [<episode url> ...] [--budget-minutes N]
-      Text of podcast episodes listed by `sources` (kind podcast): the publisher's transcript from the feed
+      Text of podcast episodes listed by `sources` (trade episodes first, then heard): the publisher's transcript from the feed
       when there is one, else a transcript on the episode page, else the audio is downloaded and transcribed
       locally with Whisper (large-v3-turbo; about 13 min per hour of audio on 4 CPUs). --budget-minutes caps
       the audio transcribed locally (default: reader.md podcast_budget_weekday); episodes over budget are reported and left for a later run. The text is
@@ -518,8 +519,12 @@ def cmd_sources(args):
                 elif not outage and p.get("failed_on") != str(today) and not (r.get("error") or "").startswith(("blocked by this environment", "ModuleNotFoundError")):
                     p.update(failures=(p.get("failures") or 0) + 1, failed_on=str(today))
             graph.save(nodes, edges)
-    ranked = rank(items, nodes, edges)
-    json.dump(ranked, open(os.path.join(outdir, "items.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    # the reader's own shows (group heard) only feed You heard it: ranked among themselves, never in `top`
+    heard = rank([i for i in items if i.get("group") == "heard"], nodes, edges)
+    ranked = rank([i for i in items if i.get("group") != "heard"], nodes, edges)
+    json.dump(ranked + heard, open(os.path.join(outdir, "items.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    ep = lambda i: {k: i[k] for k in ("score", "show", "group", "title", "url", "published", "duration_s", "named") if i.get(k)} \
+        | {"publisher_transcript": bool(i.get("transcripts"))}
     status = [{"id": r["id"], "ok": r["ok"], "mode": r.get("mode"), "browser": r.get("browser"),
                "new": len(r.get("new_items", [])), "error": r.get("error"),
                "undated_backlog_dropped": r.get("undated_backlog_dropped"), "baseline": r.get("baseline")} for r in results]
@@ -530,8 +535,7 @@ def cmd_sources(args):
          "upcoming": [{k: i.get(k) for k in ("published", "title", "url", "source")} for i in sorted(upcoming, key=lambda i: i["published"])][:40],
          "undated_backlog_dropped": sum(r.get("undated_backlog_dropped") or 0 for r in results),
          "top": [{k: i[k] for k in ("score", "title", "url", "source", "published", "named", "copies") if i.get(k)} for i in ranked[:top]],
-         "podcasts": [{k: i[k] for k in ("score", "show", "group", "title", "url", "published", "duration_s", "named") if i.get(k)}
-                      | {"publisher_transcript": bool(i.get("transcripts"))} for i in ranked if i.get("kind") == "podcast"],
+         "podcasts": [ep(i) for i in ranked if i.get("kind") == "podcast"], "heard": [ep(i) for i in heard],
          "full_list": os.path.join(outdir, "items.json"),
          **({"unseeded_sources": unseeded, "hint": "run graph.py seed to add them"} if unseeded else {}),
          "per_source": [s for s in status if s["ok"]]})
@@ -766,11 +770,11 @@ def cmd_transcribe(args):
         pass
     epdir = os.path.join(outdir, "episodes"); os.makedirs(epdir, exist_ok=True)
     used, results = 0.0, []
-    for u in args:
+    for u in sorted(args, key=lambda u: (items.get(u) or {}).get("group") == "heard"):     # trade episodes first
         it = items.get(u)
         res = {"url": u, "ok": False}
         if not it:
-            res["error"] = "not in items.json: run `fetch.py sources` first and pass an episode url from its podcasts list"
+            res["error"] = "not in items.json: run `fetch.py sources` first and pass an episode url from its podcasts or heard list"
         else:
             res.update(show=it.get("show"), title=it.get("title"), published=it.get("published"))
             try:
@@ -959,7 +963,7 @@ def cmd_rank(args):
     for i in items:
         i.pop("copies", None); i.pop("named", None); i.pop("score", None)
     nodes, edges = graph.load()
-    ranked = rank(items, nodes, edges)
+    ranked = rank([i for i in items if i.get("group") != "heard"], nodes, edges)     # heard episodes: never in `top`
     qs, names = profile(nodes, edges)
     out({"items": len(items), "after_folding_copies": len(ranked), "profile_queries": len(qs), "boost_names": len(names),
          "top": [{k: i[k] for k in ("score", "title", "url", "source", "published", "named", "copies") if i.get(k)} for i in ranked[:top]]})
