@@ -2,10 +2,16 @@
 
 What each engine release changes in a reader's paper, newest first. Instances take the latest release tag (`reader.md`'s `engine_updates`); the dreaming run installs it and tells the reader the first section below. "Instance changes" lists what an instance must change by hand or by the run before the release works; most releases have none.
 
-## 0.2.2
+## 0.3.0
 
 ### What changes in your paper
-- Nothing in the paper. New setups give the scheduled task the working branch `main`, so runs no longer leave a `claude/…` branch in the repository each day. If yours collects them, ask Claude Code on your computer to set the scheduled task's working branch to `main`; the branches only hold what is already on `main` and can then be deleted.
+- Nothing a run learned gets lost between runs any more. Scheduled cloud runs work on a branch of their own, and some of them never reached `main`, so the next run started without the previous run's memory. Every run now starts by merging any such branch (`instance.py sync`), pushes both its branch and `main`, and deletes finished run branches. A branch that can't be merged safely is left alone and reported, with the commands to resolve it.
+- German pages read cleanly: pages served without a declared character set no longer turn umlauts into garbled text, and quotes copied from garbled text before still count as found in their source.
+- A placeholder page (filler text instead of the article) is reported as unreadable instead of being stored as the article.
+- Podcasts you listen to anyway are ranked among themselves and no longer push news down the list; trade podcasts are transcribed first.
+- The Saturday memory pass works on a shorter, truer list: real look-alike entities are listed apart from brand and group pairs (a group and its subsidiary), and facts whose source was merged away are listed so they get fixed.
+- When two articles report different figures for one fact, the editor now sees both.
+- New `engine_feedback: relay`: engine problems the Saturday run finds go to the engine's maintainer as generic, leak-checked text, without a GitHub login. Off unless you say yes; reply "send engine problems to the maintainer" to turn it on.
 
 ## 0.2.1
 
