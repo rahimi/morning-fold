@@ -37,13 +37,14 @@ Three short rounds, one message each. Propose a default for every question, so "
 7. **Language**: which language should the paper be written in (propose the one the user writes to you in), and which languages do your sources write in? Sets `language` and `locale`. Quotes always stay in their original language.
 8. **Schedule**: your time zone (propose the one this computer is set to), which days you want an issue (default Monday to Friday), and by what time it should be ready (default 06:55). The Sunday week-ahead and the Saturday memory pass (default: both)? Work out the start time (step 8) and say it back in their time zone.
 9. Name of the paper (default "The Morning Fold"), tone (plain, dry, opinionated?), and should "My read" give advice or stay analysis?
-10. **Look**: tell them the paper starts in the default design and that you will show it in step 3a before anything is published. Ask now only whether they already have a colour or font in mind.
+10. **Engine problems**: "Send engine problems the paper finds to the engine's maintainer? Generic, leak-checked text only, to a server the maintainer runs." Propose yes: `engine_feedback: relay`; no: `off`.
+11. **Look**: tell them the paper starts in the default design and that you will show it in step 3a before anything is published. Ask now only whether they already have a colour or font in mind.
 
 **Round 3: sources and forecasts**
-11. Sources you already trust or read: sites, newsletters with a web archive, regulators, company newsrooms, registers or databases.
-12. **Podcasts**, as their own question: which professional podcasts in your field are must-hears (group "trade": relevant episodes read in full), and which shows do you listen to anyway, on any topic (group "heard": only episodes touching your beats, for the "You heard it" column)?
-13. **Recommendations**: do you want me to search for feeds, sites and podcasts you haven't named? If yes, step 4 starts with that search and you pick from a shortlist.
-14. Two or three things you expect to happen in your field in the next 6 to 18 months (these become the first theses: named forecasts with a date and a probability).
+12. Sources you already trust or read: sites, newsletters with a web archive, regulators, company newsrooms, registers or databases.
+13. **Podcasts**, as their own question: which professional podcasts in your field are must-hears (group "trade": relevant episodes read in full), and which shows do you listen to anyway, on any topic (group "heard": only episodes touching your beats, for the "You heard it" column)?
+14. **Recommendations**: do you want me to search for feeds, sites and podcasts you haven't named? If yes, step 4 starts with that search and you pick from a shortlist.
+15. Two or three things you expect to happen in your field in the next 6 to 18 months (these become the first theses: named forecasts with a date and a probability).
 
 ## 2. Create the private instance
 The instance is a **sibling** of the engine checkout, never inside it: `cd` to the engine's parent folder (or wherever the user keeps code) first.
@@ -90,8 +91,11 @@ Use `engine/examples/instance/` (a fictional reader) as the **format** reference
 | `min_stories`, `max_stories`, `max_in_brief`, `max_pages` | issue size | 2, 6, 8, 10 |
 | `max_item_age_days`, `recency_grace_days`, `recency_decay`, `name_boost` | ranking | 21, 2, 0.01, 0.08 |
 | `podcast_budget_weekday`, `podcast_budget_weekend` | minutes of audio transcribed locally per run | 90, 240 |
-| `engine_feedback` | engine problems a run finds: `off` tells the reader only; `issue` files them on the engine's GitHub; `pr` also opens a pull request for small fixes (needs `gh` logged in). Issues and pull requests are public: two gates check every text, but can't make it risk-free | off |
+| `engine_feedback` | engine problems a run finds: `off` tells the reader only; `relay` sends them to the maintainer's relay (no login; generic, leak-checked text); `issue` files them on the engine's GitHub; `pr` also opens a pull request for small fixes (`issue` and `pr` need `gh` logged in; without it, use `relay`). Issues and pull requests are public: two gates check every text, but can't make it risk-free | off |
+| `feedback_relay` | the relay's URL (`relay/` in the engine) | the maintainer's |
 | `engine_updates` | engine releases the dreaming run installs: `auto` the newest release (major ones too), `rc` also release candidates, `off` none (`instance.py update`, see "Later: engine updates") | auto |
+
+Runs merge only `main` and branches named like the cloud's session branches (`claude/<name>-<suffix>`, `main-<suffix>`, the suffix six lower-case letters and digits) that change `runs/` or `graph/`; they delete such a branch once `main` holds it and its suffix has a digit. Any other branch is listed as skipped and never merged. Don't give your own branches such names.
 
 Values are `key: value` lines; lists and quoted strings are JSON (`issue_days: ["Mon", "Wed", "Fri"]`). `python3 engine/tools/instance.py check` validates all of it. The tools read `locale`, `timezone`, `quiet_window`, `profile`, `watch`, `regions`, the ranking keys, `podcast_budget_weekday` and the masthead/place/language (templates); the rest (story bar, issue size, schedule, `name`) is read by the editor from `graph.py brief`. Set `quiet_window` to the scheduled run's start time through `publish_by` plus 30 minutes (step 8).
 
@@ -147,7 +151,7 @@ Before starting, ask: is their Claude plan Pro, Max, Team or Enterprise? Cloud r
 3. **The phone (optional, the best experience).** The edition arrives as a notification and opens on the phone. Install the Claude app (App Store or Google Play), sign in with the **same account** as claude.ai, and **allow notifications** when the app asks. If they missed that prompt: phone Settings → Notifications → Claude → Allow.
 
 **Then you again:**
-4. **Create the scheduled task** with the `schedule` skill (`/schedule`), or the scheduled-task tools if this session has them. Repository: their instance. Environment: the one from step 2 (look its id up; never invent one). Prompt: `Follow engine/RUN.md.` Schedule: the cron prepared above. Working branch: `main` (the task's git outcome branch; the tools default to a `claude/…` branch, and then every run pushes a leftover branch next to `main`). Check it after creating the task and set it to `main` if the tool chose another. Turn push notifications on if they set up the phone. If a tool asks the user to approve, tell them in one line what they are approving.
+4. **Create the scheduled task** with the `schedule` skill (`/schedule`), or the scheduled-task tools if this session has them. Repository: their instance. Environment: the one from step 2 (look its id up; never invent one). Prompt: `Follow engine/RUN.md.` Schedule: the cron prepared above. Turn push notifications on if they set up the phone. If a tool asks the user to approve, tell them in one line what they are approving.
 5. **Run it once now** (run-now), and explain the reply loop (step 9) while it works. Then `git pull` and read the run log in `runs/`. Check:
    - On the day of the first issue (step 7) the edition is already out, so this run only checks and writes `runs/<date>-check.json`; that is the log to read. To test publishing too, start it with a prompt that asks for a second edition, or wait for the first scheduled run.
    - `environment_cached` is true. False means the setup script didn't run or wasn't cached: in step 2, check that the script was pasted whole.
@@ -186,5 +190,5 @@ Engine changes (a tool fix, a better method in RUN.md, a template improvement) g
 - Before committing, grep the diff for the user's own names, employer, city and watched companies; it must find nothing.
 - Test the change against `examples/instance` (`MORNING_FOLD_HOME=examples/instance python3 tools/graph.py brief`, `check_issue.py`, `fetch.py rank`) and, privately, against the user's own instance.
 - Then open a pull request against the engine. How changes become releases: [`RELEASING.md`](RELEASING.md).
-- Runs can do this themselves when `engine_feedback` is `issue` or `pr` (`FEEDBACK.md`). Issues and pull requests are public. Every text and diff first passes `instance.py leakcheck`, which refuses the instance's names, sources and graph entities, and a sub-agent that sees only `reader.md` and the text; together they lower the risk of a leak, they don't remove it.
+- Runs can do this themselves when `engine_feedback` is `relay`, `issue` or `pr` (`FEEDBACK.md`). Issues and pull requests are public. Every text and diff first passes `instance.py leakcheck`, which refuses the instance's names, sources and graph entities, and a sub-agent that sees only `reader.md` and the text; together they lower the risk of a leak, they don't remove it.
 - Filed issues and pull requests appear under the reader's own GitHub account and git identity: the gates protect the content, not the author name.

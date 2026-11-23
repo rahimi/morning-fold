@@ -1,0 +1,16 @@
+# Template: fill the REPLACE values (ids, not secrets), then `npx wrangler deploy` from this folder.
+# The private key never goes in a file here: `npx wrangler secret put APP_PRIVATE_KEY`.
+name = "morning-fold-relay"
+main = "worker.mjs"
+compatibility_date = "2026-11-01"
+
+[vars]
+APP_ID = "REPLACE: the GitHub App's id"
+INSTALLATION_ID = "REPLACE: the installation id on the triage repository"
+TARGET_REPO = "REPLACE: owner/private-triage-repo"
+GLOBAL_DAILY_CAP = "30"
+IP_DAILY_CAP = "10"
+
+[[kv_namespaces]]
+binding = "RATE"
+id = "REPLACE: the id `wrangler kv namespace create RATE` prints"
