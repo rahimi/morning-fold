@@ -371,7 +371,7 @@ def cmd_upsert(args):
 def upsert(data):
     nodes, edges = load()
     ts = now()
-    created, updated, dupes, problems = [], [], [], []
+    created, updated, dupes, problems, merged = [], [], [], [], []
     for n in data.get("nodes", []):
         if not n.get("type") or not (n.get("name") or n.get("id")):
             problems.append({"node": n, "error": "needs type and name"}); continue
@@ -443,6 +443,7 @@ def upsert(data):
             also.append({k: e[k] for k in ("source", "quote", "note", "confidence") if k in e} | {"observed": ts[:10]}
                         | ({"grounded": grounded} if grounded else {}))
             cur["also"] = also
+            merged.append({"id": eid, "kept_note": cur.get("note"), "your_note": e.get("note")})
             if "confidence" in e:
                 cur["confidence"] = max(cur.get("confidence", 0), e["confidence"])
             keys = ("valid_to", "props")
@@ -474,7 +475,11 @@ def upsert(data):
                     dupes.append({"new": nid, "maybe_same_as": other, "name_similarity": round(ns, 2),
                                   "meaning_similarity": round(float(sims[k]), 3)})
     return {"created": created, "updated": updated, "embedded": embedded,
-            "possible_duplicates": dupes, "problems": problems}
+            "possible_duplicates": dupes, "problems": problems,
+            **({"merged_into_existing": merged, "merged_hint": "these landed under `also` of a known fact (same src, rel, dst, "
+                "valid_from): its note stands, the dossier shows yours. A figure for another date or period is its own fact: "
+                "give it that valid_from"}
+               if merged else {})}
 
 
 def cmd_search(args):
@@ -834,7 +839,7 @@ def cmd_dossier(args):
         v["published"] = published(e, nodes)
         v["origins"] = sorted(origins_of(e, nodes))
         if e.get("backfill"): v["backfill"] = True
-        if e.get("also"): v["corroborated_by"] = [a.get("source") for a in e["also"]]
+        if e.get("also"): v["also"] = [{k: str(a[k])[:200] for k in ("source", "note", "quote") if a.get(k)} for a in e["also"]]
         if v.get("quote"): v["quote"] = v["quote"][:200]
         for k in ("src", "dst", "rel", "grounded", "created"): v.pop(k, None)
         return v
