@@ -55,7 +55,8 @@
       archive/ keep ours (vectors then embed the merged records); the engine pointer the newer engine (then
       reported as engine_changed and checked out). Any other conflict (reader.md, sources.json, an issue ...)
       aborts that merge only and is listed under conflicts. --push: push HEAD to the main branch (if main moved:
-      sync again, retry once) and to the current branch when that is another one (a session branch). --prune:
+      sync again, retry once) and to the current branch when that is another one. A run that starts on a cloud session branch is moved onto
+      main first (its commits kept), so the session branch is never pushed and nothing is left to delete. --prune:
       after that push, delete the session branches main holds whose suffix has a digit, never the current one. An
       edge left naming a node the merge removed (src, dst, source) takes the other side's value (conflicts:
       repointed) or is listed (dangling_endpoints). An unexpected error aborts the merge in progress (error).
@@ -606,6 +607,11 @@ def cmd_sync(args):
                                       "refs/remotes/origin/") or "").split() if r.startswith("origin/") and r != "origin/HEAD"]
     has = lambda ref: g("merge-base", "--is-ancestor", ref, "HEAD") is not None
     session = lambda b, digit="": re.fullmatch(r"(claude/[\w.-]+|%s)-%s[a-z0-9]{6}" % (re.escape(main), digit), b)
+    if cur and cur != main and session(cur):     # a cloud session branch: work on main, so no branch is left behind
+        if g("checkout", "-q", "-B", main) is not None:
+            g("branch", "-q", "--set-upstream-to", "origin/" + main)
+            res["switched"] = {"from": cur, "to": main}
+            cur = main
 
     def pull():
         if g("status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all"):
