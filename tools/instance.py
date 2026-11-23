@@ -37,6 +37,13 @@
       It never commits: on success, commit the engine pointer and the changes as "Engine <current> → <target>".
       A release whose pointer commit the instance reverted (git revert --no-edit) is never taken again.
 
+  python3 engine/tools/instance.py feedback <file|->
+      Sends one engine problem to the maintainer's relay (reader.md's feedback_relay): the first line is the
+      title, the rest the body. Runs leakcheck on the text first and refuses (exit 1, nothing sent) on any hit.
+      Sends the engine version and this instance's random id (data/instance_id, made once; no personal data).
+      Prints the relay's answer as JSON: url and action (created, commented or duplicate), or sent false and
+      the reason. While feedback_relay is the placeholder (no relay deployed) it sends nothing (exit 0).
+
   python3 engine/tools/instance.py sync [--push] [--prune]
       Brings in what other runs pushed elsewhere (plain git, the remote origin; none: a no-op). Fetches every
       branch (unshallows a shallow clone), then merges what HEAD lacks: origin's main branch first, then every
@@ -189,8 +196,8 @@ def cmd_check(args):
         problems.append("reader.md: story_bar is points out of 12")
     if paths.cfg("min_stories") > paths.cfg("max_stories"):
         problems.append("reader.md: min_stories is larger than max_stories")
-    if paths.cfg("engine_feedback") not in ("off", "issue", "pr"):
-        problems.append("reader.md: engine_feedback must be off, issue or pr")
+    if paths.cfg("engine_feedback") not in ("off", "relay", "issue", "pr"):
+        problems.append("reader.md: engine_feedback must be off, relay, issue or pr")
     if paths.cfg("engine_updates") not in ("auto", "rc", "off"):
         problems.append("reader.md: engine_updates must be auto, rc or off")
     if not paths.cfg("artifact_url"):
@@ -429,6 +436,40 @@ def cmd_update(args):
     self_test(head, res)
 
 
+def cmd_feedback(args):
+    if len(args) != 1:
+        print(__doc__, file=sys.stderr); sys.exit(2)
+    text = sys.stdin.read() if args[0] == "-" else open(args[0], encoding="utf-8").read()
+    gate = subprocess.run([sys.executable, os.path.abspath(__file__), "leakcheck", "-"], input=text, capture_output=True, text=True)
+    if gate.returncode:
+        print(gate.stdout + gate.stderr, file=sys.stderr)
+        report({"sent": False, "reason": "leakcheck refused the text"}, 1)
+    url = paths.cfg("feedback_relay")
+    if re.match(r"https?://[^/]*\.invalid(/|$)", url or "https://x.invalid"):
+        report({"sent": False, "reason": "no relay configured: feedback_relay is the placeholder"})
+    idf = os.path.join(paths.HOME, "data", "instance_id")
+    if not os.path.exists(idf):
+        import uuid
+        os.makedirs(os.path.dirname(idf), exist_ok=True)
+        open(idf, "w").write(str(uuid.uuid4()) + "\n")
+    title, _, body = text.strip().partition("\n")
+    data = {"instance": open(idf).read().strip(), "engine": git("describe", "--tags", "--always") or "unknown",
+            "title": title.strip(), "body": body.strip()}
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, json.dumps(data).encode(), {"content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            ans = json.loads(r.read())
+        print({"created": "sent: a new issue", "commented": "sent: a comment on the open issue with that title",
+               "duplicate": "not sent again: the relay already has this text"}.get(ans.get("action"), "sent"), file=sys.stderr)
+        report(ans)
+    except urllib.error.HTTPError as e:
+        report({"sent": False, "status": e.code, "reason": e.read().decode(errors="replace")[:300]})
+    except (OSError, ValueError) as e:
+        report({"sent": False, "reason": str(e)[:300]})
+
+
 def stage(n, p):
     """A conflicted file's text at merge stage n (1 base, 2 ours, 3 theirs), "" when that side has none."""
     return git("-C", paths.HOME, "show", f":{n}:{p}") or ""
@@ -621,7 +662,7 @@ def cmd_sync(args):
 
 
 if __name__ == "__main__":
-    cmds = {"init": cmd_init, "check": cmd_check, "leakcheck": cmd_leakcheck, "update": cmd_update, "sync": cmd_sync}
+    cmds = {"init": cmd_init, "check": cmd_check, "leakcheck": cmd_leakcheck, "update": cmd_update, "sync": cmd_sync, "feedback": cmd_feedback}
     c, args = (sys.argv[1] if len(sys.argv) > 1 else ""), sys.argv[2:]
     if c in ("", "-h", "--help") or {"-h", "--help"} & set(args):
         print(__doc__); sys.exit(0)
