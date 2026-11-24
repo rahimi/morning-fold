@@ -612,6 +612,20 @@ def cmd_sync(args):
             g("branch", "-q", "--set-upstream-to", "origin/" + main)
             res["switched"] = {"from": cur, "to": main}
             cur = main
+            hook = os.path.join(paths.HOME, g("rev-parse", "--git-path", "hooks/pre-push") or ".git/hooks/pre-push")
+            if not os.path.exists(hook) or "morning-fold" in open(hook, encoding="utf-8", errors="replace").read():
+                # the session's own rules say "push to your branch" and outrank RUN.md: refuse it here, in this clone only
+                os.makedirs(os.path.dirname(hook), exist_ok=True)
+                open(hook, "w", encoding="utf-8").write(
+                    "#!/bin/sh\n# morning-fold (instance.py sync): a cloud run pushes only %s\n"
+                    "while read l ls r rs; do n=${r#refs/heads/}\n"
+                    "  case $ls in *[!0]*) ;; *) continue;; esac   # a deletion (--prune) is fine\n"
+                    "  if printf '%%s' \"$n\" | grep -Eq '^(claude/[A-Za-z0-9_.-]+|%s)-[a-z0-9]{6}$'; then\n"
+                    "    echo \"Morning Fold: this run works on %s. Don't push the session branch $n:\" >&2\n"
+                    "    echo \"run 'python3 engine/tools/instance.py sync --push' (it pushes %s).\" >&2; exit 1; fi\n"
+                    "done\n" % (main, re.escape(main), main, main))
+                os.chmod(hook, 0o755)
+                res["switched"]["guard"] = "pre-push refuses session branches"
 
     def pull():
         if g("status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all"):
