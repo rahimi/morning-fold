@@ -24,7 +24,9 @@ MODEL = paths.model_dir()
 # The relation vocabulary. upsert accepts others but reports them under `problems`, so the graph converges
 # on one word per meaning. Past roles: the role relation with valid_to, not WORKED_AT/LEFT.
 RELS = {
-    "roles": ["CEO_OF", "CO_CEO_OF", "MANAGING_DIRECTOR_OF", "BOARD_MEMBER_OF", "SUPERVISORY_BOARD_MEMBER_OF",
+    # CHAIR_OF: chairs a body (supervisory or management board, works council, association), with or without a
+    # membership edge beside it; a change of chair is a role change (valid_to on the old chair)
+    "roles": ["CEO_OF", "CO_CEO_OF", "MANAGING_DIRECTOR_OF", "BOARD_MEMBER_OF", "SUPERVISORY_BOARD_MEMBER_OF", "CHAIR_OF",
               "PROKURIST_OF", "PARTNER_AT", "MANAGING_PARTNER_OF", "HEAD_OF", "WORKS_AT", "FOUNDER_OF",
               "SPOKESPERSON_OF", "JOINED", "LEFT", "WORKED_AT"],
     "ownership": ["OWNS", "PARENT_OF", "MANAGES"],
@@ -338,15 +340,18 @@ def ground(quote, text):
 
 
 def source_text(nodes, source):
-    """The source's cached or archived text; for an Article that absorbed others (merge), the texts of all its urls."""
+    """The source's cached and archived text; for an Article that absorbed others (merge), the texts of all its urls.
+    Both, when they differ: a later fetch of a podcast episode's web page caches its show notes over the transcript,
+    which only the archive still holds."""
     import gzip
     p = {} if source.startswith("http") else nodes.get(resolve(nodes, source) or source, {}).get("props", {})
     texts = []
     for url in [source] if source.startswith("http") else [p.get("url")] + p.get("urls", []):
-        if url and os.path.exists(text_path(url)):
-            texts.append(open(text_path(url), encoding="utf-8").read())
-        elif url and os.path.exists(archive_path(url)):
-            texts.append(gzip.open(archive_path(url), "rt", encoding="utf-8").read())
+        got = [open(text_path(url), encoding="utf-8").read()] if url and os.path.exists(text_path(url)) else []
+        if url and os.path.exists(archive_path(url)):
+            if (a := gzip.open(archive_path(url), "rt", encoding="utf-8").read()) not in got:
+                got.append(a)
+        texts += got
     return "\n\n".join(texts) if texts else None
 
 
@@ -998,7 +1003,7 @@ def cmd_audit(args):
     group.sort(key=lambda d: -d["facts"])
     # roles that may be stale: open-ended role facts older than 18 months, unless confirmed current (`current_on`) in the last
     # six months; `verified` says the source was re-read, not that the role still holds
-    roles = {"CEO_OF", "MANAGING_DIRECTOR_OF", "WORKS_AT", "WORKED_AT", "JOINED", "PARTNER_AT", "HEAD_OF"}
+    roles = {"CEO_OF", "MANAGING_DIRECTOR_OF", "CHAIR_OF", "WORKS_AT", "WORKED_AT", "JOINED", "PARTNER_AT", "HEAD_OF"}
     stale, checked = [], today - datetime.timedelta(days=183)
     for e in edges.values():
         try:                    # a `current_on` that is no date, or a date ahead of today, confirms nothing
