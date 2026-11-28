@@ -2,6 +2,15 @@
 
 What each engine release changes in a reader's paper, newest first. Instances take the latest release tag (`reader.md`'s `engine_updates`); the dreaming run installs it and tells the reader the first section below. "Instance changes" lists what an instance must change by hand or by the run before the release works; most releases have none.
 
+## 0.3.1
+
+### What changes in your paper
+- Quotes from a podcast you heard keep counting as found in its transcript, even after a later run re-read the episode's web page (which used to hide the transcript behind the short show notes).
+- People who chair a body (a supervisory board, a works council, an association) are recorded as its chair (`CHAIR_OF`), so a change of chair shows up as a role change and is checked for staleness like other roles.
+
+### Instance changes
+- None.
+
 ## 0.3.0
 
 ### What changes in your paper
